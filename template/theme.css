@@ -1,0 +1,9 @@
+:root {
+  --sg-bg: #14161c;
+  --sg-panel: #1f232c;
+  --sg-text: #e8e6e1;
+  --sg-muted: #9a9890;
+  --sg-accent: #c9a96e;
+  --sg-font: "Noto Serif SC", "Songti SC", serif;
+  --sg-backdrop: radial-gradient(circle at 30% 20%, #2a2f3a 0%, #14161c 70%);
+}

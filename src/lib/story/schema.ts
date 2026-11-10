@@ -1,0 +1,184 @@
+import { z } from "zod";
+
+/**
+ * The contract of the whole system. Agent outputs, the validator, the engine
+ * and the UI all derive their types from here.
+ *
+ * Everything is arrays + nullable (no records, no optionals) so the same
+ * schemas work as structured-output schemas for every model provider.
+ */
+
+export const Id = z.string().regex(/^[a-z][a-z0-9_]{0,31}$/, "id 只能是小写字母开头的 a-z0-9_");
+
+export const Condition = z.object({
+  var: Id,
+  op: z.enum([">=", "<=", "=="]),
+  value: z.number().int(),
+});
+export type Condition = z.infer<typeof Condition>;
+
+export const Effect = z.object({
+  var: Id,
+  op: z.enum(["add", "set"]),
+  value: z.number().int(),
+});
+export type Effect = z.infer<typeof Effect>;
+
+export const Line = z.object({
+  speaker: Id.nullable().describe("角色 id；旁白为 null"),
+  text: z.string().min(1).max(200),
+});
+export type Line = z.infer<typeof Line>;
+
+export const Variable = z.object({
+  id: Id,
+  label: z.string().min(1).max(20),
+  init: z.number().int(),
+  min: z.number().int(),
+  max: z.number().int(),
+});
+export type Variable = z.infer<typeof Variable>;
+
+export const Character = z.object({
+  id: Id,
+  name: z.string().min(1).max(12),
+  role: z.string().min(1).max(30),
+  personality: z.string().min(1).max(80),
+  voice: z.string().min(1).max(80).describe("说话方式，编剧据此写台词"),
+  avatar: z.string().min(1).max(8).describe("一个 emoji"),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+});
+export type Character = z.infer<typeof Character>;
+
+export const EndingKind = z.enum(["good", "bad", "neutral", "secret"]);
+
+export const Choice = z.object({
+  text: z.string().min(1).max(60),
+  next: Id,
+  condition: Condition.nullable(),
+  effects: z.array(Effect).max(3),
+});
+export type Choice = z.infer<typeof Choice>;
+
+export const SceneNode = z.object({
+  id: Id,
+  type: z.literal("scene"),
+  bg: z.string().min(1).max(40).describe("场景名，如 雨夜·旧书店"),
+  lines: z.array(Line).min(1).max(8),
+  choices: z.array(Choice).min(1).max(4),
+});
+export const EndingNode = z.object({
+  id: Id,
+  type: z.literal("ending"),
+  bg: z.string().min(1).max(40),
+  endingKind: EndingKind,
+  title: z.string().min(1).max(20),
+  lines: z.array(Line).min(1).max(8),
+});
+export const StoryNode = z.discriminatedUnion("type", [SceneNode, EndingNode]);
+export type SceneNode = z.infer<typeof SceneNode>;
+export type EndingNode = z.infer<typeof EndingNode>;
+export type StoryNode = z.infer<typeof StoryNode>;
+
+export const Meta = z.object({
+  title: z.string().min(1).max(30),
+  genre: z.string().min(1).max(20),
+  tone: z.string().min(1).max(40),
+  synopsis: z.string().min(1).max(200),
+  start: Id,
+});
+export type Meta = z.infer<typeof Meta>;
+
+export const Story = z.object({
+  meta: Meta,
+  variables: z.array(Variable).max(3),
+  characters: z.array(Character).min(1).max(6),
+  nodes: z.array(StoryNode).min(2).max(40),
+});
+export type Story = z.infer<typeof Story>;
+
+// ---------------- agent outputs ----------------
+
+/** 制作人: generation spec. */
+export const Spec = z.object({
+  title: z.string().min(1).max(30),
+  genre: z.string().min(1).max(20),
+  tone: z.string().min(1).max(40),
+  synopsis: z.string().min(1).max(200),
+  characterCount: z.number().int().min(2).max(6),
+  endingCount: z.number().int().min(2).max(4),
+  nodeTarget: z.number().int().min(12).max(35),
+  variables: z.array(Variable).max(3),
+  note: z.string().max(200).describe("对用户说的一句话：规模如何定、需求是否被收窄"),
+});
+export type Spec = z.infer<typeof Spec>;
+
+/** 角色设计 */
+export const CastOutput = z.object({ characters: z.array(Character).min(2).max(6) });
+export type CastOutput = z.infer<typeof CastOutput>;
+
+export const WriterId = z.enum(["a", "b", "c", "d"]);
+export type WriterId = z.infer<typeof WriterId>;
+
+export const SkeletonChoice = z.object({
+  intent: z.string().min(1).max(40).describe("这个选项的意思，编剧据此写玩家看到的文字"),
+  next: Id,
+  condition: Condition.nullable(),
+  effects: z.array(Effect).max(3),
+});
+export type SkeletonChoice = z.infer<typeof SkeletonChoice>;
+
+export const SkeletonNode = z.object({
+  id: Id,
+  type: z.enum(["scene", "ending"]),
+  chapter: z.number().int().min(1).max(5),
+  owner: WriterId.describe("负责写这个节点的编剧"),
+  bg: z.string().min(1).max(40),
+  summary: z.string().min(1).max(120).describe("一句话梗概：这一场发生什么"),
+  endingKind: EndingKind.nullable().describe("结局节点必填，场景节点为 null"),
+  endingTitle: z.string().max(20).nullable(),
+  choices: z.array(SkeletonChoice).max(4).describe("结局节点为空数组"),
+});
+export type SkeletonNode = z.infer<typeof SkeletonNode>;
+
+export const Skeleton = z.object({
+  start: Id,
+  writers: z
+    .array(z.object({ id: WriterId, focus: z.string().min(1).max(60) }))
+    .min(1)
+    .max(4),
+  nodes: z.array(SkeletonNode).min(2).max(40),
+});
+export type Skeleton = z.infer<typeof Skeleton>;
+
+/** 编剧: content only — no structural fields, so it cannot change the graph. */
+export const WriterNode = z.object({
+  id: Id,
+  lines: z.array(Line).min(1).max(8),
+  choiceTexts: z.array(z.string().min(1).max(60)).max(4),
+});
+export const WriterOutput = z.object({ nodes: z.array(WriterNode) });
+export type WriterNode = z.infer<typeof WriterNode>;
+export type WriterOutput = z.infer<typeof WriterOutput>;
+
+/** 一致性审校 */
+export const ReviewOutput = z.object({
+  issues: z
+    .array(
+      z.object({
+        nodeId: Id,
+        problem: z.string().min(1).max(120),
+        suggestion: z.string().min(1).max(120),
+      }),
+    )
+    .max(10),
+});
+export type ReviewOutput = z.infer<typeof ReviewOutput>;
+
+/** 工程师 */
+export const EngineerOutput = z.object({
+  themeCss: z.string().min(1).max(4000).describe("只包含 :root CSS 变量和少量全局样式"),
+  hudJs: z.string().min(1).max(4000).describe("React 组件源码，export default function Hud({ vars, variables, characters })"),
+  readme: z.string().min(1).max(3000),
+});
+export type EngineerOutput = z.infer<typeof EngineerOutput>;
