@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { getDb } from "@/lib/db";
+import { getDbAsync } from "@/lib/db";
 import { modelsFromEnv } from "@/lib/agents/models";
 import type { Deps } from "@/lib/pipeline/runner";
 import { ensureOwnerId, hashIp, OWNER_COOKIE } from "@/lib/owner";
@@ -45,4 +45,5 @@ export function getDeps(): Promise<Deps> {
   return depsPromise;
 }
 
-export { getDb };
+/** Route helper: the database for this deployment. */
+export const getDb = getDbAsync;

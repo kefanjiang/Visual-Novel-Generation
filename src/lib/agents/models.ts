@@ -16,6 +16,11 @@ const DEFAULTS: Record<string, { strong: string; fast: string }> = {
 /** Build models from env: LLM_PROVIDER, LLM_MODEL_STRONG, LLM_MODEL_FAST + the provider's API key. */
 export async function modelsFromEnv(env: NodeJS.ProcessEnv = process.env): Promise<Models> {
   const provider = (env.LLM_PROVIDER ?? "anthropic").toLowerCase();
+  if (provider === "fake") {
+    // local smoke tests only: deterministic mock team that rebuilds the sample story
+    const { createFakeModels } = await import("@/test/fakeModels");
+    return createFakeModels();
+  }
   const d = DEFAULTS[provider];
   if (!d) throw new Error(`Unknown LLM_PROVIDER ${provider}`);
   const strongId = env.LLM_MODEL_STRONG ?? d.strong;

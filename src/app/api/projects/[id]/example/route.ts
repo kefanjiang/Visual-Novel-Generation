@@ -8,6 +8,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params;
   const body = (await req.json().catch(() => ({}))) as { isExample?: boolean };
   return respond(
-    await setExampleHandler(getDb(), { projectId: id, token: req.headers.get("x-admin-token"), isExample: body.isExample !== false }, process.env.ADMIN_TOKEN),
+    await setExampleHandler(await getDb(), { projectId: id, token: req.headers.get("x-admin-token"), isExample: body.isExample !== false }, process.env.ADMIN_TOKEN),
   );
 }

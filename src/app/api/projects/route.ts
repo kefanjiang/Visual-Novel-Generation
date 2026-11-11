@@ -5,13 +5,13 @@ import { limitsFromEnv } from "@/lib/ratelimit";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return respond(await listProjectsHandler(getDb(), await getOwner()));
+  return respond(await listProjectsHandler(await getDb(), await getOwner()));
 }
 
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { prompt?: unknown };
   const result = await createProjectHandler(
-    getDb(),
+    await getDb(),
     { owner: await getOwner(), ipHash: await getIpHash(req), prompt: body.prompt },
     limitsFromEnv(),
   );

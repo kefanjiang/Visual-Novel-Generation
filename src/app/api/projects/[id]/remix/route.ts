@@ -5,5 +5,5 @@ export const dynamic = "force-dynamic";
 
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  return respond(await remixHandler(getDb(), { projectId: id, owner: await getOwner() }));
+  return respond(await remixHandler(await getDb(), { projectId: id, owner: await getOwner() }));
 }
