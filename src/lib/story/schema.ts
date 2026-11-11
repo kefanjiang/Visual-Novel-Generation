@@ -45,17 +45,21 @@ export type Variable = z.infer<typeof Variable>;
 const CharacterBase = z.object({
   id: Id,
   name: z.string().min(1).max(12),
-  role: z.string().min(1).max(30),
-  personality: z.string().min(1).max(80),
-  voice: z.string().min(1).max(80).describe("说话方式，编剧据此写台词"),
+  role: z.string().min(1).max(30).describe("身份/职业"),
+  personality: z.string().min(1).max(120).describe("性格：核心特质、一个矛盾面、压力下会怎么反应"),
+  voice: z.string().min(1).max(100).describe("说话方式，编剧据此写台词：句子长短、用词、语气、紧张或说谎时的变化"),
   avatar: z.string().min(1).max(8).describe("一个 emoji"),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
 });
 const Intro = z.string().max(60).describe("给玩家看的一句介绍：身份和与你的关系，不剧透");
-/** Older stories have no intro, so it is optional in a story; the cast designer must always write one. */
-export const Character = CharacterBase.extend({ intro: Intro.optional() });
+const Traits = z.array(z.string().min(1).max(8)).describe("2–4 个性格关键词，如「嘴硬心软」「多疑」");
+const SampleLines = z
+  .array(z.string().min(1).max(40))
+  .describe("2–3 句这个角色在故事里会说的典型台词，一听就知道是他/她");
+/** Older stories lack intro/traits/sample lines, so they are optional in a story; the cast designer must always write them. */
+export const Character = CharacterBase.extend({ intro: Intro.optional(), traits: Traits.optional(), sampleLines: SampleLines.optional() });
 export type Character = z.infer<typeof Character>;
-export const CastCharacter = CharacterBase.extend({ intro: Intro.min(1) });
+export const CastCharacter = CharacterBase.extend({ intro: Intro.min(1), traits: Traits.min(2).max(4), sampleLines: SampleLines.min(2).max(3) });
 
 /** Who the player is. The player is never one of the characters. */
 export const PlayerRole = z.object({

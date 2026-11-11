@@ -18,7 +18,7 @@ export function defaultReadme(story: Story): string {
     "",
     ...(story.meta.player ? ["## 你扮演", `${story.meta.player.name ? `**${story.meta.player.name}**：` : ""}${story.meta.player.identity}`, ""] : []),
     "## 角色",
-    ...story.characters.map((c) => `- ${c.avatar} **${c.name}**（${c.role}）：${c.personality}`),
+    ...story.characters.map((c) => `- ${c.avatar} **${c.name}**（${c.role}）：${c.personality}${c.traits?.length ? `〔${c.traits.join("、")}〕` : ""}`),
     "",
     `## 结局（共 ${endings.length} 个）`,
     ...endings.map((e) => `- ${e.type === "ending" ? e.title : ""}`),

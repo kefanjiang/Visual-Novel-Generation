@@ -66,7 +66,18 @@ export function Preface({ story, onStart }) {
             <li key={c.id}>
               <span className="sg-cast-avatar">{c.avatar}</span>
               <b style={{ color: c.color }}>{c.name}</b>
-              <span className="sg-muted">{c.intro || c.role}</span>
+              <span className="sg-cast-desc">
+                <span className="sg-muted">{c.intro || c.role}</span>
+                {c.traits && c.traits.length ? (
+                  <span className="sg-traits">
+                    {c.traits.map((t) => (
+                      <span key={t} className="sg-trait" style={{ borderColor: c.color, color: c.color }}>
+                        {t}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
+              </span>
             </li>
           ))}
         </ul>

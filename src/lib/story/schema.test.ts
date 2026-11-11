@@ -70,7 +70,10 @@ describe("agent output schemas", () => {
   it("cast must give every character an intro; stories without intros still load", () => {
     const c = { id: "lin", name: "林", role: "店主", personality: "p", voice: "v", avatar: "🕯️", color: "#aabbcc" };
     expect(CastOutput.safeParse({ characters: [c, { ...c, id: "shen" }] }).success).toBe(false);
-    expect(CastOutput.safeParse({ characters: [{ ...c, intro: "店主" }, { ...c, id: "shen", intro: "熟客" }] }).success).toBe(true);
+    const full = { traits: ["多疑", "嘴硬"], sampleLines: ["打烊了。", "跟你有什么关系。"] };
+    expect(CastOutput.safeParse({ characters: [{ ...c, intro: "店主" }, { ...c, id: "shen", intro: "熟客" }] }).success).toBe(false); // no traits / sample lines
+    expect(CastOutput.safeParse({ characters: [{ ...c, ...full, intro: "店主" }, { ...c, ...full, id: "shen", intro: "熟客" }] }).success).toBe(true);
+    expect(CastOutput.safeParse({ characters: [{ ...c, ...full, traits: ["多疑"], intro: "店主" }, { ...c, ...full, id: "shen", intro: "熟客" }] }).success).toBe(false); // too few traits
     expect(Character.safeParse(c).success).toBe(true);
   });
 });

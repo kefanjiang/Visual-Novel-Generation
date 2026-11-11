@@ -19,8 +19,8 @@ export const SAMPLE_STORY: Story = {
   },
   variables: [{ id: "trust_lin", label: "林晚的信任", init: 0, min: -2, max: 5 }],
   characters: [
-    { id: "lin", name: "林晚", role: "书店老板", personality: "警惕、重感情", voice: "话少，句子短，从不正面回答问题", avatar: "🕯️", color: "#c9a96e", intro: "旧书店的老板，十年前那场火之后一直守着这家店" },
-    { id: "shen", name: "沈先生", role: "神秘顾客", personality: "彬彬有礼却让人不安", voice: "措辞客气，总在笑", avatar: "🎩", color: "#7fa7c9", intro: "深夜才来的熟客，总在笑" },
+    { id: "lin", name: "林晚", role: "书店老板", personality: "警惕、重感情", voice: "话少，句子短，从不正面回答问题", avatar: "🕯️", color: "#c9a96e", intro: "旧书店的老板，十年前那场火之后一直守着这家店", traits: ["警惕", "重情", "嘴硬"], sampleLines: ["打烊了。", "……书在不在，跟你有什么关系。"] },
+    { id: "shen", name: "沈先生", role: "神秘顾客", personality: "彬彬有礼却让人不安", voice: "措辞客气，总在笑", avatar: "🎩", color: "#7fa7c9", intro: "深夜才来的熟客，总在笑", traits: ["客气", "危险"], sampleLines: ["哎呀，这么巧。", "您别紧张，我只是来买书的。"] },
   ],
   nodes: [
     {

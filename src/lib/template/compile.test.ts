@@ -34,6 +34,7 @@ describe("generated game project", () => {
     expect(html).toContain("你扮演");
     expect(html).toContain("你是一个寻找旧书的陌生人");
     expect(html).toContain("旧书店的老板"); // character intro
+    expect(html).toContain("嘴硬"); // personality tags
     expect(html).toContain("拉开帷幕");
     expect(html).not.toContain("雨下得很大"); // the first scene waits behind the curtain
   });

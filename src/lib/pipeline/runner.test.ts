@@ -273,3 +273,14 @@ describe("ending-note requests", () => {
     for (const t of ["加一个隐藏结局", "让林晚说话更冷淡", "换成暖色调"]) expect(wantsEpilogue(t), t).toBe(false);
   });
 });
+
+describe("character voice reaches the writers", () => {
+  it("writers get each character's personality, traits and sample lines", async () => {
+    const { run } = await startGeneration(db, { owner: "o_a", prompt: "x" });
+    await runToEnd(run.id);
+    const w = models.calls.find((c) => c.agent === "writer")!;
+    expect(w.user).toContain("警惕、重感情");
+    expect(w.user).toContain("sampleLines");
+    expect(w.user).toContain("书在不在，跟你有什么关系");
+  });
+});
