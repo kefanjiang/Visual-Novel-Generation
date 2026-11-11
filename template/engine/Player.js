@@ -31,6 +31,46 @@ function restore(saved, story, nodes) {
   return initCursor(story);
 }
 
+/** The opening "play bill": background, who you are, who you will meet. */
+export function Preface({ story, onStart }) {
+  const { meta, characters } = story;
+  const player = meta.player;
+  return (
+    <section className="sg-preface">
+      <div className="sg-preface-kicker">序 幕</div>
+      <h1 className="sg-preface-title">{meta.title}</h1>
+      <p className="sg-muted sg-preface-genre">
+        {meta.genre} · {meta.tone}
+      </p>
+      <p className="sg-preface-text">{meta.preface || meta.synopsis}</p>
+      {player ? (
+        <div className="sg-preface-block">
+          <h3>你扮演</h3>
+          <p>
+            {player.name ? <b className="sg-preface-you">{player.name}</b> : null}
+            {player.identity}
+          </p>
+        </div>
+      ) : null}
+      <div className="sg-preface-block">
+        <h3>登场人物</h3>
+        <ul className="sg-cast">
+          {characters.map((c) => (
+            <li key={c.id}>
+              <span className="sg-cast-avatar">{c.avatar}</span>
+              <b style={{ color: c.color }}>{c.name}</b>
+              <span className="sg-muted">{c.intro || c.role}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <button className="sg-choice sg-start" onClick={onStart}>
+        拉开帷幕 ▸
+      </button>
+    </section>
+  );
+}
+
 export default function Player({ story, Hud }) {
   const nodes = useMemo(() => indexNodes(story), [story]);
   const chars = useMemo(() => Object.fromEntries(story.characters.map((c) => [c.id, c])), [story]);
@@ -38,6 +78,8 @@ export default function Player({ story, Hud }) {
   const endingsKey = ENDINGS_PREFIX + story.meta.title;
 
   const [cursor, setCursor] = useState(() => restore(load(saveKey, null), story, nodes));
+  // New players see the preface first; returning players go straight back to where they were.
+  const [showPreface, setShowPreface] = useState(() => Boolean(story.meta.preface) && !load(saveKey, null));
   const [endings, setEndings] = useState(() => load(endingsKey, []));
 
   const { state, line: lineIndex } = cursor;
@@ -58,12 +100,20 @@ export default function Player({ story, Hud }) {
     }
   }, [state, allShown, endings, endingsKey]);
 
+  const you = story.meta.player;
+  const playerSpeaker = {
+    name: you && you.name ? you.name + "（你）" : "你",
+    avatar: "👤",
+    color: "var(--sg-accent)",
+  };
+
   const next = () => setCursor((c) => (c.line < lines.length - 1 ? { ...c, line: c.line + 1 } : c));
   const back = () => setCursor((c) => rewind(story, c));
 
   // ← goes back a line, → / space goes forward.
   useEffect(() => {
     const onKey = (e) => {
+      if (showPreface) return;
       if (e.key === "ArrowLeft") back();
       else if (e.key === "ArrowRight" || e.key === " ") next();
     };
@@ -74,21 +124,34 @@ export default function Player({ story, Hud }) {
   if (!node) return <div className="sg-error">剧情数据有误：找不到节点 {state.nodeId}</div>;
 
   const pick = (index) => setCursor((c) => choose(story, c, index));
-  const restart = () => setCursor(initCursor(story));
+  const restart = () => {
+    setCursor(initCursor(story));
+    if (story.meta.preface) setShowPreface(true);
+  };
 
   const line = lines[Math.min(lineIndex, lines.length - 1)];
-  const speaker = line.speaker ? chars[line.speaker] : null;
+  const speaker = line.speaker === "player" ? playerSpeaker : line.speaker ? chars[line.speaker] : null;
   const endingNodes = story.nodes.filter((n) => n.type === "ending");
 
   return (
     <div className="sg-root">
       <header className="sg-header">
         <span className="sg-title">{story.meta.title}</span>
-        <span className="sg-bg">{node.bg}</span>
+        <span className="sg-header-right">
+          {!showPreface ? <span className="sg-bg">{node.bg}</span> : null}
+          {story.meta.preface && !showPreface ? (
+            <button className="sg-link" onClick={() => setShowPreface(true)} title="重看序幕和人物介绍">
+              序幕
+            </button>
+          ) : null}
+        </span>
       </header>
 
-      {Hud ? <Hud vars={state.vars} variables={story.variables} characters={story.characters} /> : null}
+      {showPreface ? <Preface story={story} onStart={() => setShowPreface(false)} /> : null}
 
+      {!showPreface && Hud ? <Hud vars={state.vars} variables={story.variables} characters={story.characters} /> : null}
+
+      {showPreface ? null : (
       <main className="sg-stage" onClick={next}>
         {speaker ? (
           <div className="sg-portrait" style={{ borderColor: speaker.color }}>
@@ -113,8 +176,9 @@ export default function Player({ story, Hud }) {
         ) : null}
         {!allShown ? <span className="sg-hint">点击继续 ▸</span> : null}
       </main>
+      )}
 
-      {allShown && node.type === "scene" ? (
+      {!showPreface && allShown && node.type === "scene" ? (
         <nav className="sg-choices">
           {availableChoices(story, state).map(({ choice, index }) => (
             <button key={index} className="sg-choice" onClick={() => pick(index)}>
@@ -124,7 +188,7 @@ export default function Player({ story, Hud }) {
         </nav>
       ) : null}
 
-      {allShown && node.type === "ending" ? (
+      {!showPreface && allShown && node.type === "ending" ? (
         <section className="sg-ending">
           <h2>结局：{node.title}</h2>
           <p className="sg-muted">

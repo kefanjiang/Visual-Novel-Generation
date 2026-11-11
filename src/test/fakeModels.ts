@@ -6,7 +6,7 @@ import { storyToSkeleton } from "@/lib/story/skeleton";
 
 (globalThis as { AI_SDK_LOG_WARNINGS?: boolean }).AI_SDK_LOG_WARNINGS = false;
 
-export type AgentName = "producer" | "cast" | "architect" | "writer" | "reviewer" | "engineer" | "router";
+export type AgentName = "producer" | "cast" | "architect" | "writer" | "reviewer" | "plot_reviewer" | "engineer" | "router";
 
 export const SAMPLE_OWNERS: Record<string, string> = {
   n1: "a", n2: "a", n3: "a",
@@ -20,6 +20,9 @@ export const FIXTURES = {
     genre: SAMPLE_STORY.meta.genre,
     tone: SAMPLE_STORY.meta.tone,
     synopsis: SAMPLE_STORY.meta.synopsis,
+    premise: structuredClone(SAMPLE_STORY.meta.premise!),
+    player: structuredClone(SAMPLE_STORY.meta.player!),
+    preface: SAMPLE_STORY.meta.preface!,
     characterCount: 2,
     endingCount: 3,
     nodeTarget: 12,
@@ -42,6 +45,7 @@ export const FIXTURES = {
       .map((n) => ({ id: n.id, lines: n.lines, choiceTexts: n.type === "scene" ? n.choices.map((c) => c.text) : [] })),
   }),
   reviewer: () => ({ issues: [] as { nodeId: string; problem: string; suggestion: string }[] }),
+  plotReview: () => ({ verdict: "pass", highlights: "开场就有悬念，三个结局各有代价。", issues: [] }),
   engineer: (): EngineerOutput => ({
     themeCss: ":root { --sg-accent: #c9a96e; }",
     hudJs: "export default function Hud({ vars }) { return <div className='hud'>信任 {vars.trust_lin}</div>; }",
@@ -72,6 +76,7 @@ export function createFakeModels(overrides: Partial<Record<AgentName, Responder>
     architect: () => FIXTURES.skeleton(),
     writer: (user) => FIXTURES.writer(assignedIds(user)),
     reviewer: () => FIXTURES.reviewer(),
+    plot_reviewer: () => FIXTURES.plotReview(),
     engineer: () => FIXTURES.engineer(),
     router: () => ({
       kind: "text",

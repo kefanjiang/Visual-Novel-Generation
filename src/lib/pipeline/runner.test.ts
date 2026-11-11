@@ -31,12 +31,12 @@ async function runToEnd(runId: string, max = 30) {
 }
 
 describe("generation pipeline", () => {
-  it("happy path: plan → cast → skeleton → write → review → validate → assemble", async () => {
+  it("happy path: plan → cast → skeleton → plot review → write → review → validate → assemble", async () => {
     const { project, run } = await startGeneration(db, { owner: "o_a", prompt: "雨夜书店的悬疑故事" });
     const { last, stages } = await runToEnd(run.id);
 
     expect(last.status).toBe("done");
-    expect(stages).toEqual(["cast", "skeleton", "write", "review", "validate", "assemble", "done"]);
+    expect(stages).toEqual(["cast", "skeleton", "plot_review", "write", "review", "validate", "assemble", "done"]);
 
     const p = await getProject(db, project.id);
     expect(p?.title).toBe("雨夜书店");
@@ -70,7 +70,7 @@ describe("generation pipeline", () => {
     const { run } = await startGeneration(db, { owner: "o_a", prompt: "x" });
     const { last, stages } = await runToEnd(run.id);
     expect(last.status).toBe("done");
-    expect(stages.slice(0, 4)).toEqual(["cast", "skeleton", "skeleton", "write"]);
+    expect(stages.slice(0, 5)).toEqual(["cast", "skeleton", "skeleton", "plot_review", "write"]);
     const archCalls = models.calls.filter((c) => c.agent === "architect");
     expect(archCalls).toHaveLength(2);
     expect(archCalls[1].user).toContain("n99");
@@ -149,5 +149,86 @@ describe("generation pipeline", () => {
     await expect(startGeneration(db, { owner: "o", prompt: "   " })).rejects.toThrow();
     const { project } = await startGeneration(db, { owner: "o", prompt: "长".repeat(800) });
     expect(project.prompt).toHaveLength(500);
+  });
+});
+
+describe("plot review (Iris reads the skeleton before writing)", () => {
+  it("sends a dull skeleton back to Ada once, with Iris's notes, then writes", async () => {
+    models.queue("plot_reviewer", {
+      verdict: "revise",
+      highlights: "开场的雨夜很有气氛。",
+      issues: [{ nodeId: "n2", problem: "这一场没有推进", suggestion: "让林晚在这里说漏一个细节" }],
+    });
+    const { project, run } = await startGeneration(db, { owner: "o_a", prompt: "x" });
+    const { last, stages } = await runToEnd(run.id);
+    expect(last.status).toBe("done");
+    expect(stages.slice(0, 5)).toEqual(["cast", "skeleton", "plot_review", "skeleton", "write"]);
+
+    const arch = models.calls.filter((c) => c.agent === "architect");
+    expect(arch).toHaveLength(2);
+    expect(arch[1].user).toContain("让林晚在这里说漏一个细节");
+    expect(arch[1].user).toContain("你上一版的骨架");
+    // Iris gets exactly one look, even after the revision.
+    expect(models.calls.filter((c) => c.agent === "plot_reviewer")).toHaveLength(1);
+
+    const msgs = await listMessages(db, project.id);
+    expect(msgs.some((m) => m.agent === "reviewer" && m.content.includes("退回 Ada"))).toBe(true);
+    expect(msgs.some((m) => m.agent === "architect" && m.content.includes("按 Iris 的意见"))).toBe(true);
+  });
+
+  it("keeps the approved skeleton when the revision breaks the structure", async () => {
+    models.queue("plot_reviewer", { verdict: "revise", highlights: "h", issues: [{ nodeId: null, problem: "p", suggestion: "s" }] });
+    models.queue("architect", FIXTURES.skeleton()); // first draft: fine
+    const broken = FIXTURES.skeleton();
+    broken.nodes[1].choices[0].next = "n99";
+    models.queue("architect", broken); // revision: broken
+    const { project, run } = await startGeneration(db, { owner: "o_a", prompt: "x" });
+    const { last, stages } = await runToEnd(run.id);
+    expect(last.status).toBe("done");
+    expect(stages.slice(0, 5)).toEqual(["cast", "skeleton", "plot_review", "skeleton", "write"]);
+    expect(models.calls.filter((c) => c.agent === "architect")).toHaveLength(2);
+    const msgs = await listMessages(db, project.id);
+    expect(msgs.some((m) => m.content.includes("沿用上一版骨架"))).toBe(true);
+  });
+
+  it("a failed read-through does not block the run", async () => {
+    models.queue("plot_reviewer", new Error("overloaded"));
+    models.queue("plot_reviewer", new Error("overloaded"));
+    const { run } = await startGeneration(db, { owner: "o_a", prompt: "x" });
+    const { last, stages } = await runToEnd(run.id);
+    expect(last.status).toBe("done");
+    expect(stages.slice(0, 4)).toEqual(["cast", "skeleton", "plot_review", "write"]);
+  });
+
+  it("writers get the player's identity and the story's hidden truth", async () => {
+    const { run } = await startGeneration(db, { owner: "o_a", prompt: "x" });
+    await runToEnd(run.id);
+    const w = models.calls.find((c) => c.agent === "writer")!;
+    expect(w.user).toContain("玩家（你）：你是一个寻找旧书的陌生人");
+    expect(w.user).toContain("hiddenTruth");
+  });
+
+  it("the finished story carries the preface, the player and the premise", async () => {
+    const { project, run } = await startGeneration(db, { owner: "o_a", prompt: "x" });
+    await runToEnd(run.id);
+    const v = await getVersion(db, (await getProject(db, project.id))!.currentVersionId!);
+    const story = Story.parse(JSON.parse(v!.files[STORY_PATH]));
+    expect(story.meta.preface).toBe(FIXTURES.spec().preface);
+    expect(story.meta.player).toEqual(FIXTURES.spec().player);
+    expect(story.meta.premise?.hiddenTruth).toContain("沈先生");
+  });
+
+  it("renames a character that took the reserved id 'player'", async () => {
+    const cast = FIXTURES.cast();
+    cast.characters[1].id = "player";
+    models.queue("cast", cast);
+    const sk = FIXTURES.skeleton();
+    models.queue("architect", sk);
+    const { run } = await startGeneration(db, { owner: "o_a", prompt: "x" });
+    // Only need the cast stage.
+    await advanceRun(db, run.id, deps);
+    await advanceRun(db, run.id, deps);
+    const state = (await getRun(db, run.id))!.state as { cast: { id: string }[] };
+    expect(state.cast.map((c) => c.id)).toEqual(["lin", "npc_2"]);
   });
 });

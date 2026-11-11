@@ -29,7 +29,16 @@ export function neighborSummaries(skeleton: Skeleton, ids: string[]): { id: stri
 }
 
 function metaFrom(spec: Spec, skeleton: Skeleton): Story["meta"] {
-  return { title: spec.title, genre: spec.genre, tone: spec.tone, synopsis: spec.synopsis, start: skeleton.start };
+  return {
+    title: spec.title,
+    genre: spec.genre,
+    tone: spec.tone,
+    synopsis: spec.synopsis,
+    start: skeleton.start,
+    preface: spec.preface,
+    player: spec.player,
+    premise: spec.premise,
+  };
 }
 
 /**
@@ -157,6 +166,15 @@ export function specFromStory(story: Story): Spec {
     genre: story.meta.genre,
     tone: story.meta.tone,
     synopsis: story.meta.synopsis,
+    // Games made before premises existed get neutral stand-ins so edits still work.
+    premise: story.meta.premise ?? {
+      question: story.meta.synopsis.slice(0, 80),
+      playerGoal: "沿用原剧情",
+      stakes: "沿用原剧情",
+      hiddenTruth: "沿用原剧情中已经写出的设定",
+    },
+    player: story.meta.player ?? { name: null, identity: "你是故事的主角" },
+    preface: story.meta.preface ?? story.meta.synopsis,
     characterCount: story.characters.length,
     endingCount: Math.min(4, Math.max(2, story.nodes.filter((n) => n.type === "ending").length)),
     nodeTarget: Math.min(35, Math.max(12, story.nodes.length)),

@@ -8,11 +8,19 @@ export const SAMPLE_STORY: Story = {
     tone: "压抑、克制",
     synopsis: "暴雨夜，你走进一家快打烊的旧书店，寻找一本十年前卖出的书。",
     start: "n1",
+    preface: "十年前，城南的旧书店烧过一场大火。今夜暴雨，你攥着一张褪色的购书小票，推开了那扇还亮着灯的门。",
+    player: { name: null, identity: "你是一个寻找旧书的陌生人" },
+    premise: {
+      question: "十年前那场火，和你要找的书有什么关系？",
+      playerGoal: "找到那本书和它的上一任主人",
+      stakes: "错过今夜，真相会和书一起消失",
+      hiddenTruth: "那本书里夹着纵火者的认罪信；沈先生就是当年放火的人，他也在找这本书。",
+    },
   },
   variables: [{ id: "trust_lin", label: "林晚的信任", init: 0, min: -2, max: 5 }],
   characters: [
-    { id: "lin", name: "林晚", role: "书店老板", personality: "警惕、重感情", voice: "话少，句子短，从不正面回答问题", avatar: "🕯️", color: "#c9a96e" },
-    { id: "shen", name: "沈先生", role: "神秘顾客", personality: "彬彬有礼却让人不安", voice: "措辞客气，总在笑", avatar: "🎩", color: "#7fa7c9" },
+    { id: "lin", name: "林晚", role: "书店老板", personality: "警惕、重感情", voice: "话少，句子短，从不正面回答问题", avatar: "🕯️", color: "#c9a96e", intro: "旧书店的老板，十年前那场火之后一直守着这家店" },
+    { id: "shen", name: "沈先生", role: "神秘顾客", personality: "彬彬有礼却让人不安", voice: "措辞客气，总在笑", avatar: "🎩", color: "#7fa7c9", intro: "深夜才来的熟客，总在笑" },
   ],
   nodes: [
     {

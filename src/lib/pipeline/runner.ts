@@ -16,6 +16,7 @@ import {
   runCast,
   runEngineer,
   runEngineerEdit,
+  runPlotReviewer,
   runProducer,
   runReviewer,
   runRouter,
@@ -24,10 +25,12 @@ import {
 import type { Models } from "@/lib/agents/models";
 import { TEAM, writerKey, type AgentKey } from "@/lib/agents/team";
 import {
+  PLAYER_SPEAKER,
   Story,
   type Character,
   type EditPlan,
   type EngineerOutput,
+  type PlotReview,
   type ReviewOutput,
   type Skeleton,
   type Spec,
@@ -46,6 +49,7 @@ export type Stage =
   | "plan"
   | "cast"
   | "skeleton"
+  | "plot_review"
   | "write"
   | "review"
   | "revise"
@@ -68,6 +72,10 @@ export interface RunState {
   skeletonDraft?: Skeleton;
   archRound: number;
   archFeedback?: string[];
+  /** Iris has read the skeleton (she gets one look, and can send it back once). */
+  plotReviewed?: boolean;
+  /** Skeleton that passed structure checks before a plot revision; used if the revision breaks. */
+  approvedSkeleton?: Skeleton;
   written: Record<string, WriterNode>;
   engineer?: EngineerOutput | null;
   review?: ReviewOutput["issues"];
@@ -136,10 +144,15 @@ const HANDLERS: Record<Exclude<Stage, "done">, Handler> = {
     await emit("cast", "started");
     const r = await runCast(deps.models, spec);
     state.tokens += r.tokens;
-    state.cast = r.output.characters;
+    // "player" is reserved for the player's own lines; rename a character that took it.
+    state.cast = r.output.characters.map((c, i) => (c.id === PLAYER_SPEAKER ? { ...c, id: `npc_${i + 1}` } : c));
     spec.characterCount = state.cast.length; // trust the cast actually produced
     await emit("cast", "done", { characters: state.cast });
-    await say("cast", `角色定好了：${state.cast.map((c) => `${c.avatar} ${c.name}（${c.role}）`).join("、")}。交给 Ada 搭骨架。`);
+    const you = spec.player.name ? `${spec.player.name}——${spec.player.identity}` : spec.player.identity;
+    await say(
+      "cast",
+      `玩家：${you}。\n登场角色：${state.cast.map((c) => `${c.avatar} ${c.name}（${c.role}）`).join("、")}。交给 Ada 搭骨架。`,
+    );
     return "skeleton";
   },
 
@@ -149,6 +162,17 @@ const HANDLERS: Record<Exclude<Stage, "done">, Handler> = {
     const r = await runArchitect(deps.models, spec, state.cast!, state.archFeedback ?? [], state.archFeedback ? state.skeletonDraft : undefined);
     state.tokens += r.tokens;
     const check = validateStory(skeletonToStory(spec, state.cast!, r.output), { spec, owners: ownersOf(r.output) });
+    if (!check.ok && state.approvedSkeleton) {
+      // A plot revision broke the structure: keep the version that already passed.
+      state.skeleton = state.approvedSkeleton;
+      state.approvedSkeleton = undefined;
+      state.archFeedback = undefined;
+      state.skeletonDraft = undefined;
+      await emit("architect", "done", { nodes: state.skeleton.nodes.length, reverted: true });
+      await emit("system", "graph", { ...graphOf(state.skeleton), status: "outline" });
+      await say("system", `Ada 的改版没有通过结构校验（${formatErrors(check.errors).slice(0, 2).join("；")}），沿用上一版骨架开写。`);
+      return "write";
+    }
     if (!check.ok) {
       state.archRound += 1;
       state.skeletonDraft = r.output;
@@ -160,19 +184,60 @@ const HANDLERS: Record<Exclude<Stage, "done">, Handler> = {
       await say("system", `骨架结构校验发现 ${check.errors.length} 个问题，已交还 Ada 修改：\n${state.archFeedback.slice(0, 5).map((f) => `· ${f}`).join("\n")}`);
       return "skeleton";
     }
+    const revised = Boolean(state.approvedSkeleton);
     state.skeleton = r.output;
     state.archFeedback = undefined;
     state.skeletonDraft = undefined;
+    state.approvedSkeleton = undefined;
     await emit("architect", "done", { nodes: r.output.nodes.length });
     await emit("system", "graph", { ...graphOf(r.output), status: "outline" });
     const endings = r.output.nodes.filter((n) => n.type === "ending").length;
     const writers = r.output.writers.filter((w) => activeWriters(r.output).includes(w.id));
+    const plan = writers.map((w) => `· ${TEAM[writerKey(w.id)].title}：${w.focus}`).join("\n");
+    if (!state.plotReviewed) {
+      await say(
+        "architect",
+        `骨架完成：${r.output.nodes.length - endings} 个场景、${endings} 个结局，结构校验通过。编剧分工：\n${plan}\n开写前先请 Iris 读一遍，看看好不好玩。`,
+      );
+      return "plot_review";
+    }
     await say(
       "architect",
-      `骨架完成：${r.output.nodes.length - endings} 个场景、${endings} 个结局，结构校验通过。分给 ${writers.length} 位编剧并行写：\n${writers
-        .map((w) => `· ${TEAM[writerKey(w.id)].title}：${w.focus}`)
-        .join("\n")}\n同时请 Kai 做界面。`,
+      `${revised ? "按 Iris 的意见改好了骨架" : "骨架完成"}：${r.output.nodes.length - endings} 个场景、${endings} 个结局，结构校验通过。分给 ${writers.length} 位编剧并行写：\n${plan}\n同时请 Kai 做界面。`,
     );
+    return "write";
+  },
+
+  async plot_review({ state, deps, emit, say }) {
+    const skeleton = state.skeleton!;
+    await emit("reviewer", "started", { target: "plot" });
+    state.plotReviewed = true;
+    let review: PlotReview;
+    try {
+      const r = await runPlotReviewer(deps.models, state.spec!, state.cast!, skeleton);
+      state.tokens += r.tokens;
+      review = r.output;
+    } catch (err) {
+      // The read-through is a quality pass, not a gate: if it fails, write the skeleton as is.
+      await emit("reviewer", "failed", { target: "plot", error: String(err) });
+      await say("system", "Iris 这次没能读完骨架，直接开写。");
+      return "write";
+    }
+    await emit("reviewer", "done", { target: "plot", verdict: review.verdict });
+    if (review.verdict === "revise" && review.issues.length) {
+      state.approvedSkeleton = skeleton;
+      state.skeletonDraft = skeleton;
+      state.skeleton = undefined;
+      state.archFeedback = review.issues.map((i) => `${i.nodeId ? `[${i.nodeId}] ` : ""}${i.problem} → ${i.suggestion}`);
+      await say(
+        "reviewer",
+        `读完了。${review.highlights}\n有 ${review.issues.length} 处可以更好玩，退回 Ada 改一轮：\n${state.archFeedback.map((f) => `· ${f}`).join("\n")}`,
+      );
+      return "skeleton";
+    }
+    await say("reviewer", `读完了，可以开写。${review.highlights}`);
+    const writers = skeleton.writers.filter((w) => activeWriters(skeleton).includes(w.id));
+    await say("architect", `分给 ${writers.length} 位编剧并行写，同时请 Kai 做界面。`);
     return "write";
   },
 
@@ -377,6 +442,17 @@ const HANDLERS: Record<Exclude<Stage, "done">, Handler> = {
     const r = await runArchitectEdit(deps.models, state.spec!, state.cast!, before, plan.instructions, state.archFeedback ?? []);
     state.tokens += r.tokens;
     const check = validateStory(skeletonToStory(state.spec!, state.cast!, r.output), { owners: ownersOf(r.output) });
+    if (!check.ok && state.approvedSkeleton) {
+      // A plot revision broke the structure: keep the version that already passed.
+      state.skeleton = state.approvedSkeleton;
+      state.approvedSkeleton = undefined;
+      state.archFeedback = undefined;
+      state.skeletonDraft = undefined;
+      await emit("architect", "done", { nodes: state.skeleton.nodes.length, reverted: true });
+      await emit("system", "graph", { ...graphOf(state.skeleton), status: "outline" });
+      await say("system", `Ada 的改版没有通过结构校验（${formatErrors(check.errors).slice(0, 2).join("；")}），沿用上一版骨架开写。`);
+      return "write";
+    }
     if (!check.ok) {
       state.archRound += 1;
       state.archFeedback = formatErrors(check.errors);
@@ -593,6 +669,7 @@ export function stageLabel(stage: string): string {
     plan: "制作人定规格",
     cast: "角色设计",
     skeleton: "搭剧情骨架",
+    plot_review: "审读剧情骨架",
     write: "编剧并行写作",
     review: "一致性审校",
     revise: "按审校意见修改",

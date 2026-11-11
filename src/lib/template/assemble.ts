@@ -14,8 +14,9 @@ export function defaultReadme(story: Story): string {
   return [
     `# ${story.meta.title}`,
     "",
-    story.meta.synopsis,
+    story.meta.preface ?? story.meta.synopsis,
     "",
+    ...(story.meta.player ? ["## 你扮演", `${story.meta.player.name ? `**${story.meta.player.name}**：` : ""}${story.meta.player.identity}`, ""] : []),
     "## 角色",
     ...story.characters.map((c) => `- ${c.avatar} **${c.name}**（${c.role}）：${c.personality}`),
     "",

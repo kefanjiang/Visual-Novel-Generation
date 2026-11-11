@@ -24,8 +24,11 @@ export const Effect = z.object({
 });
 export type Effect = z.infer<typeof Effect>;
 
+/** Reserved speaker id for the player's own lines (never a character id). */
+export const PLAYER_SPEAKER = "player";
+
 export const Line = z.object({
-  speaker: Id.nullable().describe("角色 id；旁白为 null"),
+  speaker: Id.nullable().describe("角色 id；玩家自己说话用 player；旁白为 null"),
   text: z.string().min(1).max(200),
 });
 export type Line = z.infer<typeof Line>;
@@ -39,7 +42,7 @@ export const Variable = z.object({
 });
 export type Variable = z.infer<typeof Variable>;
 
-export const Character = z.object({
+const CharacterBase = z.object({
   id: Id,
   name: z.string().min(1).max(12),
   role: z.string().min(1).max(30),
@@ -48,7 +51,27 @@ export const Character = z.object({
   avatar: z.string().min(1).max(8).describe("一个 emoji"),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
 });
+const Intro = z.string().max(60).describe("给玩家看的一句介绍：身份和与你的关系，不剧透");
+/** Older stories have no intro, so it is optional in a story; the cast designer must always write one. */
+export const Character = CharacterBase.extend({ intro: Intro.optional() });
 export type Character = z.infer<typeof Character>;
+export const CastCharacter = CharacterBase.extend({ intro: Intro.min(1) });
+
+/** Who the player is. The player is never one of the characters. */
+export const PlayerRole = z.object({
+  name: z.string().min(1).max(12).nullable().describe("玩家角色的名字；不需要名字就为 null"),
+  identity: z.string().min(1).max(60).describe("第二人称写玩家是谁，如「你是入职刚满一周的项目助理」"),
+});
+export type PlayerRole = z.infer<typeof PlayerRole>;
+
+/** The dramatic core every agent works from. hiddenTruth is for the team only. */
+export const Premise = z.object({
+  question: z.string().min(1).max(80).describe("贯穿全剧、让玩家想一直玩下去的核心问题"),
+  playerGoal: z.string().min(1).max(80).describe("玩家想要达成什么"),
+  stakes: z.string().min(1).max(80).describe("失败或选错会失去什么"),
+  hiddenTruth: z.string().min(1).max(200).describe("故事背后的真相：谁、做了什么、为什么。只给团队看，不能出现在序幕里"),
+});
+export type Premise = z.infer<typeof Premise>;
 
 export const EndingKind = z.enum(["good", "bad", "neutral", "secret"]);
 
@@ -86,6 +109,10 @@ export const Meta = z.object({
   tone: z.string().min(1).max(40),
   synopsis: z.string().min(1).max(200),
   start: Id,
+  // Added later; optional so earlier games still load.
+  preface: z.string().max(300).optional(),
+  player: PlayerRole.optional(),
+  premise: Premise.optional(),
 });
 export type Meta = z.infer<typeof Meta>;
 
@@ -105,7 +132,10 @@ export const Spec = z.object({
   genre: z.string().min(1).max(20),
   tone: z.string().min(1).max(40),
   synopsis: z.string().min(1).max(200),
-  characterCount: z.number().int().min(2).max(6),
+  premise: Premise,
+  player: PlayerRole,
+  preface: z.string().min(1).max(300).describe("开场序幕：2–4 句第二人称旁白，交代时间地点、你的处境、引出核心问题，不剧透"),
+  characterCount: z.number().int().min(2).max(6).describe("登场角色数，不含玩家"),
   endingCount: z.number().int().min(2).max(4),
   nodeTarget: z.number().int().min(12).max(35),
   variables: z.array(Variable).max(3),
@@ -114,7 +144,7 @@ export const Spec = z.object({
 export type Spec = z.infer<typeof Spec>;
 
 /** 角色设计 */
-export const CastOutput = z.object({ characters: z.array(Character).min(2).max(6) });
+export const CastOutput = z.object({ characters: z.array(CastCharacter).min(2).max(6) });
 export type CastOutput = z.infer<typeof CastOutput>;
 
 export const WriterId = z.enum(["a", "b", "c", "d"]);
@@ -174,6 +204,22 @@ export const ReviewOutput = z.object({
     .max(10),
 });
 export type ReviewOutput = z.infer<typeof ReviewOutput>;
+
+/** 审校 reading the skeleton before anyone writes: is it worth playing? */
+export const PlotReview = z.object({
+  verdict: z.enum(["pass", "revise"]).describe("pass=可以开写；revise=有明显影响趣味的问题，退回架构师改一轮"),
+  highlights: z.string().min(1).max(120).describe("一句话：这个骨架最吸引人的地方"),
+  issues: z
+    .array(
+      z.object({
+        nodeId: Id.nullable().describe("相关节点；针对整体就为 null"),
+        problem: z.string().min(1).max(120),
+        suggestion: z.string().min(1).max(160),
+      }),
+    )
+    .max(5),
+});
+export type PlotReview = z.infer<typeof PlotReview>;
 
 /** 工程师 */
 export const EngineerOutput = z.object({

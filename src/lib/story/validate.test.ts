@@ -118,3 +118,14 @@ describe("validateStory", () => {
     expect([...groups.keys()].sort()).toEqual(["architect", "writer:b"]);
   });
 });
+
+describe("player speaker", () => {
+  it("accepts lines spoken by the player and reserves the id", () => {
+    const s = structuredClone(SAMPLE_STORY);
+    s.nodes[0].lines.push({ speaker: "player", text: "我只是来躲雨的。" });
+    expect(validateStory(s).ok).toBe(true);
+    s.characters[1].id = "player";
+    const r = validateStory(s);
+    expect(r.errors.some((e) => e.message.includes("留给玩家"))).toBe(true);
+  });
+});

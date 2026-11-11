@@ -1,5 +1,5 @@
 import { availableChoices, initState, step, type GameState } from "./engine";
-import { Story, type Spec } from "./schema";
+import { PLAYER_SPEAKER, Story, type Spec } from "./schema";
 
 export type Rule = "schema" | "reference" | "stuck" | "reachability" | "scale" | "text";
 
@@ -59,6 +59,7 @@ export function validateStory(input: unknown, opts: ValidateOptions = {}): Valid
   }
   const charIds = new Set(story.characters.map((c) => c.id));
   if (charIds.size !== story.characters.length) add("reference", null, "architect", "角色 id 重复");
+  if (charIds.has(PLAYER_SPEAKER)) add("reference", null, "architect", `角色 id 不能用 ${PLAYER_SPEAKER}，它留给玩家自己的台词`);
   const varIds = new Set(story.variables.map((v) => v.id));
   for (const v of story.variables) {
     if (!(v.min <= v.init && v.init <= v.max)) add("reference", null, "architect", `变量 ${v.id} 需要满足 min ≤ init ≤ max`);
@@ -68,7 +69,7 @@ export function validateStory(input: unknown, opts: ValidateOptions = {}): Valid
 
   for (const n of story.nodes) {
     for (const line of n.lines) {
-      if (line.speaker && !charIds.has(line.speaker)) add("reference", n.id, writerOf(n.id), `未知说话人 ${line.speaker}`);
+      if (line.speaker && line.speaker !== PLAYER_SPEAKER && !charIds.has(line.speaker)) add("reference", n.id, writerOf(n.id), `未知说话人 ${line.speaker}`);
     }
     if (n.type !== "scene") continue;
     n.choices.forEach((c, i) => {

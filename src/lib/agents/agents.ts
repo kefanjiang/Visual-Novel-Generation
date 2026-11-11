@@ -4,6 +4,7 @@ import {
   CastOutput,
   EditPlan,
   EngineerOutput,
+  PlotReview,
   ReviewOutput,
   Skeleton,
   Spec,
@@ -82,6 +83,8 @@ export function runWriter(
   const parts = [
     `ASSIGNED_IDS: ${ids.join(",")}`,
     `题材：${ctx.spec.genre}；基调：${ctx.spec.tone}；简介：${ctx.spec.synopsis}`,
+    `玩家（你）：${ctx.spec.player.identity}${ctx.spec.player.name ? `，名字是${ctx.spec.player.name}` : ""}`,
+    `故事内核：\n${json(ctx.spec.premise)}`,
     ctx.focus ? `你负责的剧情线：${ctx.focus}` : "",
     `角色卡：\n${json(ctx.cast)}`,
     `你要写的节点（骨架）：\n${json(mine.map((n) => ({ id: n.id, type: n.type, bg: n.bg, summary: n.summary, endingTitle: n.endingTitle, choiceIntents: n.choices.map((c) => c.intent) })))}`,
@@ -90,6 +93,10 @@ export function runWriter(
   if (current) parts.push(`这些节点当前的内容：\n${json(current)}`);
   if (feedback.length) parts.push(`需要修正的问题：\n${feedback.map((f) => `- ${f}`).join("\n")}`);
   return callAgent(m.fast, WriterOutput, P.WRITER, parts.filter(Boolean).join("\n\n"));
+}
+
+export function runPlotReviewer(m: Models, spec: Spec, cast: Character[], skeleton: Skeleton) {
+  return callAgent(m.fast, PlotReview, P.PLOT_REVIEWER, [`规格：\n${json(spec)}`, `角色：\n${json(cast)}`, `剧情骨架：\n${json(skeleton)}`].join("\n\n"));
 }
 
 export function runReviewer(m: Models, story: Story) {

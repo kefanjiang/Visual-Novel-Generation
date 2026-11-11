@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { CastOutput, Skeleton, Spec, Story, WriterOutput } from "./schema";
+import { CastOutput, Character, Skeleton, Spec, Story, WriterOutput } from "./schema";
 import { SAMPLE_STORY } from "./sample";
 
 describe("Story schema", () => {
@@ -47,9 +47,30 @@ describe("agent output schemas", () => {
   it("spec enforces adjustable but bounded scale", () => {
     const base = {
       title: "t", genre: "g", tone: "x", synopsis: "s", nodeTarget: 20, endingCount: 3, variables: [], note: "",
+      premise: { question: "q", playerGoal: "g", stakes: "s", hiddenTruth: "t" },
+      player: { name: null, identity: "你是一个路人" },
+      preface: "p",
     };
     expect(Spec.safeParse({ ...base, characterCount: 6 }).success).toBe(true);
     expect(Spec.safeParse({ ...base, characterCount: 7 }).success).toBe(false);
     expect(Spec.safeParse({ ...base, characterCount: 1 }).success).toBe(false);
+  });
+
+  it("spec requires a premise, a player and a preface", () => {
+    const { premise: _p, ...noPremise } = {
+      title: "t", genre: "g", tone: "x", synopsis: "s", nodeTarget: 20, endingCount: 3, characterCount: 3, variables: [], note: "",
+      premise: { question: "q", playerGoal: "g", stakes: "s", hiddenTruth: "t" },
+      player: { name: null, identity: "你是一个路人" },
+      preface: "p",
+    };
+    void _p;
+    expect(Spec.safeParse(noPremise).success).toBe(false);
+  });
+
+  it("cast must give every character an intro; stories without intros still load", () => {
+    const c = { id: "lin", name: "林", role: "店主", personality: "p", voice: "v", avatar: "🕯️", color: "#aabbcc" };
+    expect(CastOutput.safeParse({ characters: [c, { ...c, id: "shen" }] }).success).toBe(false);
+    expect(CastOutput.safeParse({ characters: [{ ...c, intro: "店主" }, { ...c, id: "shen", intro: "熟客" }] }).success).toBe(true);
+    expect(Character.safeParse(c).success).toBe(true);
   });
 });
