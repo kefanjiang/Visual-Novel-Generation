@@ -13,7 +13,8 @@
     "db:migrate": "drizzle-kit migrate",
     "gen:template": "node scripts/gen-template.mjs",
     "pretest": "node scripts/gen-template.mjs",
-    "prebuild": "node scripts/gen-template.mjs"
+    "prebuild": "node scripts/gen-template.mjs",
+    "vercel-build": "node scripts/gen-template.mjs && drizzle-kit migrate && next build"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.102",
@@ -31,12 +32,14 @@
     "@electric-sql/pglite": "^0.5.16",
     "@tailwindcss/turbopack": "4.3.3",
     "@types/node": "^22.20.5",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "drizzle-kit": "^0.31.11",
     "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
+    "pg": "^8.23.1",
     "tailwindcss": "4.3.3",
     "typescript": "^5",
     "vitest": "^5.1.0"
