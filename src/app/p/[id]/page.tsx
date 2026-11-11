@@ -158,7 +158,7 @@ export default function ProjectPage() {
               分享
             </button>
           ) : null}
-          {data.currentVersion ? (
+          {data.currentVersion && !data.project.isOwner ? (
             <button className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-bg" onClick={remix}>
               Remix
             </button>

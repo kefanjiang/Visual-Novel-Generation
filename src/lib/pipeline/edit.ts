@@ -3,6 +3,7 @@ import {
   addVersion,
   createProject,
   createRun,
+  deleteProject as deleteProjectRow,
   getActiveRun,
   getProject,
   getVersion,
@@ -135,4 +136,14 @@ export async function remixProject(db: Db, input: { projectId: string; owner: st
     versionId: v.id,
   });
   return copy;
+}
+
+/** Owner-only. Homepage examples and projects with a run in progress are kept. */
+export async function deleteProject(db: Db, input: { projectId: string; owner: string }) {
+  const project = await getProject(db, input.projectId);
+  if (!project) throw new EditError(404, "项目不存在");
+  if (project.owner !== input.owner) throw new EditError(403, "只能删除自己的项目");
+  if (project.isExample) throw new EditError(409, "这是首页示例，先取消示例再删除");
+  if (await getActiveRun(db, project.id)) throw new EditError(409, "团队还在处理这个项目，完成后再删除");
+  await deleteProjectRow(db, project.id);
 }

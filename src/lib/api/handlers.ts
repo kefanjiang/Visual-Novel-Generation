@@ -10,7 +10,7 @@ import {
   listVersions,
   updateProject,
 } from "@/lib/db/repo";
-import { EditError, remixProject, restoreVersion, saveManualEdit, startEdit } from "@/lib/pipeline/edit";
+import { deleteProject, EditError, remixProject, restoreVersion, saveManualEdit, startEdit } from "@/lib/pipeline/edit";
 import type { Db } from "@/lib/db/types";
 import { advanceRun, retryRun, type Deps } from "@/lib/pipeline/runner";
 import { startGeneration } from "@/lib/pipeline/start";
@@ -37,7 +37,15 @@ export async function createProjectHandler(
 
 export async function listProjectsHandler(db: Db, owner: string) {
   const [mine, examples] = await Promise.all([listProjectsByOwner(db, owner), listExamples(db)]);
-  const pick = (p: (typeof mine)[number]) => ({ id: p.id, title: p.title, genre: p.genre, prompt: p.prompt, updatedAt: p.updatedAt });
+  const pick = (p: (typeof mine)[number]) => ({
+    id: p.id,
+    title: p.title,
+    genre: p.genre,
+    prompt: p.prompt,
+    updatedAt: p.updatedAt,
+    isExample: p.isExample,
+    forkedFrom: p.forkedFrom,
+  });
   return ok({ mine: mine.map(pick), examples: examples.map(pick) });
 }
 
@@ -147,6 +155,13 @@ export async function saveVersionHandler(
     const v = await saveManualEdit(db, { projectId: input.projectId, owner: input.owner, files: files as Record<string, string> }, compile);
     return { versionId: v.id, n: v.n };
   }, 201);
+}
+
+export async function deleteProjectHandler(db: Db, input: { projectId: string; owner: string }) {
+  return guard(async () => {
+    await deleteProject(db, input);
+    return { ok: true };
+  });
 }
 
 export async function remixHandler(db: Db, input: { projectId: string; owner: string }) {

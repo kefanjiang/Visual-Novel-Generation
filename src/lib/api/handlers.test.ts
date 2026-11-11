@@ -4,9 +4,11 @@ import { createFakeModels } from "@/test/fakeModels";
 import type { Db } from "@/lib/db/types";
 import type { Limits } from "@/lib/ratelimit";
 import { checkProjectCompiles } from "@/lib/template/compile";
+import { getActiveRun, listMessages, listVersions } from "@/lib/db/repo";
 import {
   advanceHandler,
   createProjectHandler,
+  deleteProjectHandler,
   eventsHandler,
   getProjectHandler,
   getVersionHandler,
@@ -150,5 +152,31 @@ describe("step 6 handlers", () => {
     expect((await setExampleHandler(db, { projectId, token: "secret", isExample: true }, undefined)).status).toBe(401);
     expect((await setExampleHandler(db, { projectId, token: "secret", isExample: true }, "secret")).status).toBe(200);
     expect(((await listProjectsHandler(db, "o_anyone")).body as { examples: { id: string }[] }).examples.map((e) => e.id)).toEqual([projectId]);
+  });
+
+  it("delete: owner only, keeps examples and running projects, removes everything else", async () => {
+    const { projectId } = await generatedProject();
+    expect((await deleteProjectHandler(db, { projectId, owner: "o_x" })).status).toBe(403);
+    expect((await deleteProjectHandler(db, { projectId: "p_nope", owner: "o_me" })).status).toBe(404);
+
+    await postMessageHandler(db, { projectId, owner: "o_me", ipHash: "h", text: "改一下" }, limits);
+    expect(await getActiveRun(db, projectId)).toBeTruthy();
+    expect((await deleteProjectHandler(db, { projectId, owner: "o_me" })).status).toBe(409);
+
+    const { projectId: other } = await generatedProject();
+    await setExampleHandler(db, { projectId: other, token: "s", isExample: true }, "s");
+    expect((await deleteProjectHandler(db, { projectId: other, owner: "o_me" })).status).toBe(409);
+    await setExampleHandler(db, { projectId: other, token: "s", isExample: false }, "s");
+
+    // a remix of it survives the original being deleted
+    const remix = (await remixHandler(db, { projectId: other, owner: "o_guest" })).body as { projectId: string };
+    expect((await deleteProjectHandler(db, { projectId: other, owner: "o_me" })).status).toBe(200);
+    expect((await getProjectHandler(db, other, "o_me")).status).toBe(404);
+    expect(await listVersions(db, other)).toEqual([]);
+    expect(await listMessages(db, other)).toEqual([]);
+    expect((await getProjectHandler(db, remix.projectId, "o_guest")).status).toBe(200);
+
+    const mine = (await listProjectsHandler(db, "o_guest")).body as { mine: { id: string; forkedFrom: string | null }[] };
+    expect(mine.mine[0]).toMatchObject({ id: remix.projectId, forkedFrom: other });
   });
 });

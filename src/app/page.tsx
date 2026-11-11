@@ -19,6 +19,8 @@ interface Item {
   title: string;
   genre: string | null;
   prompt: string;
+  isExample?: boolean;
+  forkedFrom?: string | null;
 }
 
 export default function Home() {
@@ -31,6 +33,16 @@ export default function Home() {
   useEffect(() => {
     api<{ mine: Item[]; examples: Item[] }>("/api/projects").then(setLists).catch(() => {});
   }, []);
+
+  const remove = async (item: Item) => {
+    if (!window.confirm(`删除《${item.title}》？所有版本和对话记录都会删除，不能恢复。`)) return;
+    try {
+      await api(`/api/projects/${item.id}`, { method: "DELETE" });
+      setLists((l) => ({ ...l, mine: l.mine.filter((p) => p.id !== item.id) }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const create = async (value = prompt) => {
     if (!value.trim() || busy) return;
@@ -98,22 +110,38 @@ export default function Home() {
       </section>
 
       {lists.examples.length ? <ProjectList title="示例画廊（点开即可试玩，也可以 Remix 后继续改）" items={lists.examples} /> : null}
-      {lists.mine.length ? <ProjectList title="我的项目" items={lists.mine} /> : null}
+      {lists.mine.length ? <ProjectList title="我的项目" items={lists.mine} onDelete={remove} /> : null}
     </main>
   );
 }
 
-function ProjectList({ title, items }: { title: string; items: Item[] }) {
+function ProjectList({ title, items, onDelete }: { title: string; items: Item[]; onDelete?: (item: Item) => void }) {
   return (
     <section className="mb-10">
       <h2 className="mb-4 text-sm text-muted">{title}</h2>
       <div className="grid gap-3 md:grid-cols-3">
         {items.map((p) => (
-          <Link key={p.id} href={`/p/${p.id}`} className="rounded-xl border border-line bg-panel p-4 transition hover:border-accent">
-            <div className="mb-1 font-medium">{p.title}</div>
-            <div className="mb-2 text-xs text-accent">{p.genre ?? "生成中"}</div>
-            <div className="line-clamp-2 text-xs text-muted">{p.prompt}</div>
-          </Link>
+          <div key={p.id} className="group relative">
+            <Link href={`/p/${p.id}`} className="block h-full rounded-xl border border-line bg-panel p-4 transition hover:border-accent">
+              <div className="mb-1 pr-6 font-medium">{p.title}</div>
+              <div className="mb-2 flex gap-2 text-xs">
+                <span className="text-accent">{p.genre ?? "生成中"}</span>
+                {p.forkedFrom ? <span className="text-muted">Remix 副本</span> : null}
+                {onDelete && p.isExample ? <span className="text-muted">首页示例</span> : null}
+              </div>
+              <div className="line-clamp-2 text-xs text-muted">{p.prompt}</div>
+            </Link>
+            {onDelete && !p.isExample ? (
+              <button
+                className="absolute right-2 top-2 rounded-md px-2 py-0.5 text-xs text-muted opacity-60 hover:bg-danger/15 hover:text-danger hover:opacity-100 group-hover:opacity-100"
+                title="删除项目"
+                aria-label={`删除《${p.title}》`}
+                onClick={() => onDelete(p)}
+              >
+                删除
+              </button>
+            ) : null}
+          </div>
         ))}
       </div>
     </section>

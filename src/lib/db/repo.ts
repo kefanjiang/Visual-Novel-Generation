@@ -35,6 +35,12 @@ export async function getProject(db: Db, id: string): Promise<Project | null> {
   return row ?? null;
 }
 
+/** Versions, messages, runs and their events go with it (ON DELETE CASCADE). */
+export async function deleteProject(db: Db, id: string): Promise<boolean> {
+  const rows = await db.delete(projects).where(eq(projects.id, id)).returning({ id: projects.id });
+  return rows.length > 0;
+}
+
 export async function updateProject(
   db: Db,
   id: string,
