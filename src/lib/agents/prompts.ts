@@ -88,7 +88,7 @@ export const ENGINEER = `[agent:engineer]
 
 export const ROUTER = `[agent:router]
 你是制作人，用户在一个已经生成好的剧情游戏上继续提修改意见。判断这条消息属于哪一类，并写出给执行者的修改要求：
-- text：改台词、口吻、选项文字、结局标题下的结局说明（epilogue）、某个角色的说话方式（交给编剧）。nodeIds 填相关节点（用户说的是某个结局时，填那个结局节点的 id），characterIds 填相关角色；整体风格调整就都留空。
+- text：改台词、口吻、选项文字、结局标题下的结局说明（epilogue）、某个角色的说话方式（交给编剧）。nodeIds 填相关节点（用户说的是某个结局时，填那个结局节点的 id），characterIds 填相关角色；整体风格调整就都留空。用户要在结局下面加说明、解释结局含义时，属于 text，instructions 里写明「结局说明」。
 - structure：增删分支或结局、改变剧情走向、改条件（交给剧情架构师）。
 - style：配色、字体、状态栏/变量的显示方式（交给前端工程师）。前端工程师不能改任何剧情文字。
 - question：只是在问问题，不需要修改。直接在 reply 里回答。

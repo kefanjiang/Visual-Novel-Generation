@@ -263,3 +263,13 @@ describe("writing is chunked and resumable", () => {
     expect(last.error).toMatch(/连续 3 次没写完/);
   });
 });
+
+describe("ending-note requests", () => {
+  it("are recognised from the user's words", async () => {
+    const { wantsEpilogue } = await import("./runner");
+    for (const t of ["结局下面写一段话", "在结局下方说明一下", "解释一下这个结局", "每个结局都交代清楚", "把结局写明确一点，告诉玩家真凶另有其人"]) {
+      expect(wantsEpilogue(t), t).toBe(true);
+    }
+    for (const t of ["加一个隐藏结局", "让林晚说话更冷淡", "换成暖色调"]) expect(wantsEpilogue(t), t).toBe(false);
+  });
+});

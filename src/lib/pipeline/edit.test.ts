@@ -265,4 +265,58 @@ describe("routing and change reports", () => {
     expect(await listVersions(db, p.id)).toHaveLength(2);
     expect((await listMessages(db, p.id)).at(-1)?.content).toContain("游戏画面里看不到变化");
   });
+
+  it("'write under the ending': only the named ending is rewritten and its epilogue is set", async () => {
+    const p = await generated();
+    useEditingWriters();
+    // the router forgets to name the node; the ending title in the user's words is enough
+    models.queue("router", { kind: "text", reply: "好的", nodeIds: [], characterIds: [], instructions: "写清楚真凶另有其人", summary: "结局说明" });
+    const { run } = await startEdit(db, { projectId: p.id, owner: "o_me", text: "在「雨中离去」这个结局下面写一段话：真凶另有其人，我被当成替罪羊" });
+    await drive(run.id);
+    const rewritten = models.calls.filter((c) => c.agent === "writer").flatMap((c) => assignedIds(c.user));
+    expect(rewritten).toEqual(["e_bad"]);
+    expect(models.calls.find((c) => c.agent === "writer")!.user).toContain("输出非空的 epilogue");
+    const { story } = await currentStory(p.id);
+    const e = story.nodes.find((n) => n.id === "e_bad");
+    expect(e?.type === "ending" && e.epilogue).toBe("真凶另有其人，你被推出来顶了罪。");
+  });
+
+  it("a misrouted ending-note request (style/structure) still goes to the writers", async () => {
+    const p = await generated();
+    useEditingWriters();
+    models.queue("router", { kind: "structure", reply: "加节点", nodeIds: ["e_bad"], characterIds: [], instructions: "在结局后加一个说明节点", summary: "结局说明" });
+    const { run } = await startEdit(db, { projectId: p.id, owner: "o_me", text: "每个结局下面加一段说明" });
+    const { stages } = await drive(run.id);
+    expect(stages[0]).toBe("edit_text");
+    expect(models.calls.some((c) => c.agent === "architect" || c.agent === "engineer")).toBe(false);
+    const msgs = await listMessages(db, p.id);
+    expect(msgs.some((m) => m.content.includes("交给编剧来写"))).toBe(true);
+  });
+
+  it("if the writer skips the epilogue it is asked once more; a second miss is reported", async () => {
+    const p = await generated();
+    useEditingWriters();
+    const unchanged = FIXTURES.writer(["e_bad"]);
+    models.queue("router", { kind: "text", reply: "好", nodeIds: ["e_bad"], characterIds: [], instructions: "结局说明：写明真凶另有其人", summary: "结局说明" });
+    models.queue("writer", unchanged); // first try: no epilogue
+    const r1 = await startEdit(db, { projectId: p.id, owner: "o_me", text: "结局下面写清楚" });
+    await drive(r1.run.id);
+    const calls = models.calls.filter((c) => c.agent === "writer");
+    expect(calls).toHaveLength(2);
+    expect(calls[1].user).toContain("上一次你没有写或没有修改 epilogue");
+    let { story } = await currentStory(p.id);
+    let e = story.nodes.find((n) => n.id === "e_bad");
+    expect(e?.type === "ending" && e.epilogue).toBeTruthy();
+
+    // second request, both tries miss
+    models.queue("router", { kind: "text", reply: "好", nodeIds: ["e_good"], characterIds: [], instructions: "结局说明", summary: "结局说明" });
+    models.queue("writer", FIXTURES.writer(["e_good"]));
+    models.queue("writer", FIXTURES.writer(["e_good"]));
+    const r2 = await startEdit(db, { projectId: p.id, owner: "o_me", text: "迟到的结案这个结局下面也写一段说明" });
+    await drive(r2.run.id);
+    ({ story } = await currentStory(p.id));
+    e = story.nodes.find((n) => n.id === "e_good");
+    expect(e?.type === "ending" && e.epilogue).toBeFalsy();
+    expect((await listMessages(db, p.id)).at(-1)?.content).toContain("编剧没能写出结局说明");
+  });
 });

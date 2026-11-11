@@ -115,6 +115,8 @@ export interface RunState {
   plan?: EditPlan;
   changedIds?: string[];
   versionSource?: "generate" | "chat_edit";
+  /** Endings whose epilogue the user asked for but the writers didn't deliver. */
+  epilogueMissed?: string[];
   /** The version an edit started from, to report what actually changed. */
   baseVersionId?: string;
   editSummary?: string;
@@ -147,6 +149,22 @@ interface Ctx {
 }
 
 type Handler = (ctx: Ctx) => Promise<Stage>;
+
+/** "Write something under the ending" in the user's words. Deterministic, so routing can't miss it. */
+export const EPILOGUE_REQUEST = /结局.{0,12}(下面|下方|底下|说明|解释|交代|写明|点明|注明|告诉玩家)|(说明|解释|交代).{0,6}结局/;
+
+export function wantsEpilogue(userText: string, instructions = ""): boolean {
+  return EPILOGUE_REQUEST.test(userText) || /结局说明|epilogue/i.test(instructions);
+}
+
+/** Which endings an epilogue request is about: the ones the router named, else the ones named by title, else all. */
+export function epilogueTargets(story: Story, userText: string, nodeIds: string[]): string[] {
+  const endings = story.nodes.filter((n) => n.type === "ending");
+  const picked = endings.filter((e) => nodeIds.includes(e.id));
+  if (picked.length) return picked.map((e) => e.id);
+  const named = endings.filter((e) => e.type === "ending" && userText.includes(e.title));
+  return (named.length ? named : endings).map((e) => e.id);
+}
 
 /** What each @-mentionable member can change. */
 const CAN: Partial<Record<AgentKey, EditPlan["kind"][]>> = {
@@ -445,6 +463,12 @@ const HANDLERS: Record<Exclude<Stage, "done">, Handler> = {
     const r = await runRouter(deps.models, story, text);
     state.tokens += r.tokens;
     const plan: EditPlan = r.output;
+    if (EPILOGUE_REQUEST.test(text) && (plan.kind === "structure" || plan.kind === "style")) {
+      // Text under an ending is the writers' job, whatever the router guessed.
+      plan.kind = "text";
+      plan.reply = "这是给结局写说明文字，交给编剧来写。";
+      plan.instructions = `结局说明：${plan.instructions}`;
+    }
     await emit("producer", "done", { plan });
     state.plan = plan;
     state.editSummary = plan.summary;
@@ -478,16 +502,41 @@ const HANDLERS: Record<Exclude<Stage, "done">, Handler> = {
     const byChar = new Set(plan.characterIds);
     const targets = new Set(plan.nodeIds.filter((id) => owners[id]));
     for (const n of story.nodes) if (n.lines.some((l) => l.speaker && byChar.has(l.speaker))) targets.add(n.id);
+    const epilogueIds = wantsEpilogue(state.prompt, plan.instructions) ? epilogueTargets(story, state.prompt, plan.nodeIds) : [];
+    for (const id of epilogueIds) targets.add(id);
     const ids = targets.size ? [...targets] : story.nodes.map((n) => n.id);
+
+    const request = `用户的修改要求（原话：「${state.prompt}」）：${plan.instructions}`;
+    const epilogueNote = (forIds: string[]) =>
+      `这次一定要写结局说明：请为 ${forIds.join("、")} 输出非空的 epilogue 字段（它显示在「结局：标题」正下方），内容按用户的要求写。`;
     const byWriter: Record<string, { ids: string[]; feedback: string[] }> = {};
     for (const id of ids) {
       const w = owners[id];
-      byWriter[w] ??= { ids: [], feedback: [`用户的修改要求（原话：「${state.prompt}」）：${plan.instructions}`] };
+      byWriter[w] ??= { ids: [], feedback: [request] };
       byWriter[w].ids.push(id);
+    }
+    for (const w of Object.keys(byWriter)) {
+      const mine = byWriter[w].ids.filter((id) => epilogueIds.includes(id));
+      if (mine.length) byWriter[w].feedback.push(epilogueNote(mine));
     }
     state.changedIds = ids;
     await emit("system", "graph_status", { ids, status: "outline" });
+    const before = Object.fromEntries(epilogueIds.map((id) => [id, state.written[id]?.epilogue ?? null]));
     await rewrite(state, deps, emit, byWriter);
+
+    // Check the request was actually carried out; give the writer one more go if not.
+    const missed = () => epilogueIds.filter((id) => !state.written[id]?.epilogue?.trim() || state.written[id]?.epilogue === before[id]);
+    if (missed().length) {
+      const retry: Record<string, { ids: string[]; feedback: string[] }> = {};
+      for (const id of missed()) {
+        const w = owners[id];
+        retry[w] ??= { ids: [], feedback: [request, "上一次你没有写或没有修改 epilogue 字段。"] };
+        retry[w].ids.push(id);
+      }
+      for (const w of Object.keys(retry)) retry[w].feedback.push(epilogueNote(retry[w].ids));
+      await rewrite(state, deps, emit, retry);
+    }
+    state.epilogueMissed = missed();
     return "validate";
   },
 
@@ -597,12 +646,20 @@ const HANDLERS: Record<Exclude<Stage, "done">, Handler> = {
       if (base) {
         const report = describeChanges({ story: base.story as Story, files: base.files }, { story, files });
         if (report.none) {
-          await say("producer", `这次没有产生任何改动，版本保持不变。可能是我没理解对，换个说法再试试，或者说清楚想改哪一处。`);
+          const missed = state.epilogueMissed?.length ? "编剧没能写出结局说明。" : "";
+          await say("producer", `这次没有产生任何改动，版本保持不变。${missed}可能是我没理解对，换个说法再试试，或者说清楚想改哪一处。`);
           return "done";
         }
         changes = report.visible
           ? `改动：${changeSummary(report)}。`
           : `注意：这次只改了 ${changeSummary(report)}，游戏画面里看不到变化。`;
+        if (state.epilogueMissed?.length) {
+          const titles = state.epilogueMissed.map((id) => {
+            const n = story.nodes.find((x) => x.id === id);
+            return n?.type === "ending" ? `「${n.title}」` : id;
+          });
+          changes += `注意：结局${titles.join("、")}的说明没有写成功，可以再说一次。`;
+        }
       }
     }
     const version = await addVersion(db, {
