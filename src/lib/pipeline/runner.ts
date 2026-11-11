@@ -148,7 +148,8 @@ const HANDLERS: Record<Exclude<Stage, "done">, Handler> = {
     state.cast = r.output.characters.map((c, i) => (c.id === PLAYER_SPEAKER ? { ...c, id: `npc_${i + 1}` } : c));
     spec.characterCount = state.cast.length; // trust the cast actually produced
     await emit("cast", "done", { characters: state.cast });
-    const you = spec.player.name ? `${spec.player.name}——${spec.player.identity}` : spec.player.identity;
+    const identity = spec.player.identity.replace(/[。.！!]+$/, "");
+    const you = spec.player.name ? `${spec.player.name}——${identity}` : identity;
     await say(
       "cast",
       `玩家：${you}。\n登场角色：${state.cast.map((c) => `${c.avatar} ${c.name}（${c.role}）`).join("、")}。交给 Ada 搭骨架。`,

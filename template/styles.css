@@ -44,5 +44,6 @@ body { background: var(--sg-backdrop, var(--sg-bg)); color: var(--sg-text); font
 .sg-preface-you { color: var(--sg-accent); margin-right: 8px; }
 .sg-cast { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .sg-cast li { display: flex; align-items: baseline; gap: 8px; line-height: 1.6; }
-.sg-cast-avatar { font-size: 20px; }
+.sg-cast li b { white-space: nowrap; flex-shrink: 0; }
+.sg-cast-avatar { font-size: 20px; flex-shrink: 0; }
 .sg-start { text-align: center; margin-top: 6px; }
