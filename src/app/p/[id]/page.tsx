@@ -39,12 +39,27 @@ export default function ProjectPage() {
   }, [id]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data fetch
     load();
   }, [load]);
 
   const activeRunId = data?.run?.status === "running" ? data.run.id : null;
   const { timeline, run } = useRun(activeRunId, Boolean(data?.project.isOwner), load);
   const running = run ? run.status === "running" : data?.run?.status === "running";
+  // Agents post chat messages as they finish each step; pull them in while the run is live.
+  const refreshMessages = useCallback(async () => {
+    try {
+      const d = await api<ProjectPayload>(`/api/projects/${id}`);
+      setData((prev) => (prev ? { ...prev, messages: d.messages, project: { ...prev.project, title: d.project.title, genre: d.project.genre } } : d));
+    } catch {
+      // next event will try again
+    }
+  }, [id]);
+  useEffect(() => {
+    if (!running || !timeline.lastId) return;
+    const t = setTimeout(refreshMessages, 300);
+    return () => clearTimeout(t);
+  }, [running, timeline.lastId, refreshMessages]);
   const failed = (run?.status === "failed" ? run.error : null) ?? (data?.run?.status === "failed" ? data.run.error : null);
 
   // During a run show the live graph; afterwards derive it from the version being viewed.

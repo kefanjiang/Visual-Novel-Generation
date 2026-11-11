@@ -38,7 +38,9 @@ export default function Player({ story, Hud }) {
   const lines = node ? node.lines : [];
   const allShown = lineIndex >= lines.length - 1;
 
-  useEffect(() => save(saveKey, state), [saveKey, state]);
+  useEffect(() => {
+    save(saveKey, state);
+  }, [saveKey, state]);
 
   useEffect(() => {
     if (state.ended && allShown && !endings.includes(state.nodeId)) {

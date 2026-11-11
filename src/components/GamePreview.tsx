@@ -8,7 +8,8 @@ import {
   SandpackProvider,
   useSandpack,
 } from "@codesandbox/sandpack-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { editedFiles } from "@/lib/client/edits";
 
 /** Sandpack's react template needs a public/index.html with a #root. */
 const HTML = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head><body><div id="root"></div></body></html>`;
@@ -24,24 +25,51 @@ export function toSandpackFiles(files: Record<string, string>) {
 function ErrorWatcher({ onError }: { onError?: (msg: string | null) => void }) {
   const { sandpack } = useSandpack();
   const msg = sandpack.error?.message ?? null;
-  useEffect(() => onError?.(msg), [msg, onError]);
+  useEffect(() => {
+    onError?.(msg);
+  }, [msg, onError]);
   return null;
 }
 
-function DirtyWatcher({ original, onDirty }: { original: Record<string, string>; onDirty?: (files: Record<string, string> | null) => void }) {
+/**
+ * Reports edits made in the code editor. The baseline is what Sandpack holds right after mount
+ * (our files plus the template's own, e.g. /package.json), so template files never count as edits.
+ * Only calls onDirty when the set of edits actually changes, so parent re-renders can't loop.
+ */
+function DirtyWatcher({ onDirty }: { onDirty?: (files: Record<string, string> | null) => void }) {
   const { sandpack } = useSandpack();
+  const baseline = useRef<Record<string, string> | null>(null);
+  const lastSignature = useRef("");
   useEffect(() => {
-    const changed: Record<string, string> = {};
-    let dirty = false;
-    for (const [path, f] of Object.entries(sandpack.files)) {
-      if (path === "/public/index.html") continue;
-      changed[path] = f.code;
-      if (original[path] !== f.code) dirty = true;
-    }
-    onDirty?.(dirty ? changed : null);
-  }, [sandpack.files, original, onDirty]);
+    const current = Object.fromEntries(Object.entries(sandpack.files).map(([p, f]) => [p, f.code]));
+    if (!baseline.current) baseline.current = current;
+    const { files, signature } = editedFiles(baseline.current, current);
+    if (signature === lastSignature.current) return;
+    lastSignature.current = signature;
+    onDirty?.(files);
+  }, [sandpack.files, onDirty]);
   return null;
 }
+
+/** A new files object (another version, a fresh load) remounts Sandpack so the editor resets cleanly. */
+const fileKeys = new WeakMap<object, number>();
+let nextKey = 0;
+function keyOf(files: object) {
+  let k = fileKeys.get(files);
+  if (k === undefined) {
+    k = ++nextKey;
+    fileKeys.set(files, k);
+  }
+  return k;
+}
+
+const OPTIONS = {
+  activeFile: "/story.json",
+  visibleFiles: ["/story.json", "/components/Hud.js", "/theme.css", "/App.js"],
+  recompileMode: "delayed" as const,
+  recompileDelay: 600,
+};
+const CUSTOM_SETUP = { entry: "/index.js" };
 
 export function GamePreview({
   files,
@@ -57,8 +85,7 @@ export function GamePreview({
   height?: string;
 }) {
   const spFiles = useMemo(() => toSandpackFiles(files), [files]);
-  const [key, setKey] = useState(0);
-  useEffect(() => setKey((k) => k + 1), [files]);
+  const key = keyOf(files);
 
   return (
     <SandpackProvider
@@ -66,12 +93,12 @@ export function GamePreview({
       template="react"
       theme="dark"
       files={spFiles}
-      options={{ activeFile: "/story.json", visibleFiles: ["/story.json", "/components/Hud.js", "/theme.css", "/App.js"], recompileMode: "delayed", recompileDelay: 600 }}
-      customSetup={{ entry: "/index.js" }}
+      options={OPTIONS}
+      customSetup={CUSTOM_SETUP}
       style={{ height }}
     >
       <ErrorWatcher onError={onError} />
-      <DirtyWatcher original={files} onDirty={onDirty} />
+      <DirtyWatcher onDirty={onDirty} />
       <SandpackLayout style={{ height, border: "none", borderRadius: 0 }}>
         {mode === "code" ? (
           <>

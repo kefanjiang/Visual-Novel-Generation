@@ -35,7 +35,11 @@ export function ChatPanel({
   const endRef = useRef<HTMLDivElement>(null);
   const mention = /@(\S*)$/.exec(text);
 
-  useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), [messages.length, running]);
+  // Block body on purpose: newer Chrome returns a Promise from scrollIntoView, and an effect
+  // that returns anything but a cleanup function crashes React on unmount.
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length, running]);
 
   const active = useMemo(() => ROSTER.filter((a) => timeline.agents[a]), [timeline.agents]);
 

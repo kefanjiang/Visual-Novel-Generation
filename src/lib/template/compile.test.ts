@@ -13,9 +13,9 @@ async function renderGame(files: Record<string, string>): Promise<string> {
     `import App from "/App.js"; import { renderToString } from "react-dom/server"; export default () => renderToString(<App />);`,
   );
   if (!r.ok) throw new Error(r.errors.join("\n"));
-  const module = { exports: {} as { default: () => string } };
-  new Function("require", "module", "exports", r.code)(require, module, module.exports);
-  return module.exports.default();
+  const mod = { exports: {} as { default: () => string } };
+  new Function("require", "module", "exports", r.code)(require, mod, mod.exports);
+  return mod.exports.default();
 }
 
 describe("generated game project", () => {

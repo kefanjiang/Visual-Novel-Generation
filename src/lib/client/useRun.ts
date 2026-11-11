@@ -20,12 +20,15 @@ export function useRun(runId: string | null, canDrive: boolean, onSettled: () =>
   const [run, setRun] = useState<RunInfo | null>(null);
   const lastId = useRef(0);
   const settledRef = useRef(onSettled);
-  settledRef.current = onSettled;
+  useEffect(() => {
+    settledRef.current = onSettled;
+  }, [onSettled]);
 
   useEffect(() => {
     if (!runId) return;
     let alive = true;
     lastId.current = 0;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset when switching to another run
     setTimeline(emptyTimeline());
 
     const poll = async () => {
