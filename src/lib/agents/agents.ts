@@ -122,6 +122,7 @@ export function runRouter(m: Models, story: Story, message: string) {
   const outline = story.nodes.map((n) => ({
     id: n.id,
     type: n.type,
+    ...(n.type === "ending" ? { title: n.title, epilogue: n.epilogue ?? null } : {}),
     speakers: [...new Set(n.lines.map((l) => l.speaker).filter(Boolean))],
     first: n.lines[0]?.text.slice(0, 40),
   }));

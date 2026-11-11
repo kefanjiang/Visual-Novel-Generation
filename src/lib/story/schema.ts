@@ -97,6 +97,8 @@ export const EndingNode = z.object({
   endingKind: EndingKind,
   title: z.string().min(1).max(20),
   lines: z.array(Line).min(1).max(8),
+  /** Shown under the ending title. Optional so earlier games still load. */
+  epilogue: z.string().max(200).optional(),
 });
 export const StoryNode = z.discriminatedUnion("type", [SceneNode, EndingNode]);
 export type SceneNode = z.infer<typeof SceneNode>;
@@ -186,6 +188,11 @@ export const WriterNode = z.object({
   id: Id,
   lines: z.array(Line).min(1).max(8),
   choiceTexts: z.array(z.string().min(1).max(60)).max(4),
+  epilogue: z
+    .string()
+    .max(200)
+    .nullable()
+    .describe("结局节点必填：显示在结局标题下方的结局说明，1–3 句；场景节点为 null"),
 });
 export const WriterOutput = z.object({ nodes: z.array(WriterNode) });
 export type WriterNode = z.infer<typeof WriterNode>;

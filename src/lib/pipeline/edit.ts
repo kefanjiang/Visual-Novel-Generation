@@ -61,6 +61,7 @@ export async function startEdit(db: Db, input: { projectId: string; owner: strin
     ...initialState(text),
     mode: "edit",
     mention,
+    baseVersionId: version.id,
     spec: specFromStory(story),
     cast: story.characters,
     skeleton: storyToSkeleton(story, owners),

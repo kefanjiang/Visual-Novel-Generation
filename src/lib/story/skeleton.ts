@@ -54,9 +54,11 @@ export function skeletonToStory(spec: Spec, cast: Character[], skeleton: Skeleto
   };
 }
 
-function buildNode(n: SkeletonNode, lines: StoryNode["lines"], choiceTexts: string[]): unknown {
+function buildNode(n: SkeletonNode, lines: StoryNode["lines"], choiceTexts: string[], epilogue?: string | null): unknown {
   if (n.type === "ending") {
-    return { id: n.id, type: "ending", bg: n.bg, endingKind: n.endingKind ?? "neutral", title: n.endingTitle ?? "结局", lines };
+    const node: Record<string, unknown> = { id: n.id, type: "ending", bg: n.bg, endingKind: n.endingKind ?? "neutral", title: n.endingTitle ?? "结局", lines };
+    if (epilogue) node.epilogue = epilogue;
+    return node;
   }
   return {
     id: n.id,
@@ -95,7 +97,7 @@ export function mergeStory(
       });
     }
     const texts = n.choices.map((c, i) => w.choiceTexts[i] ?? c.intent);
-    return buildNode(n, w.lines, texts);
+    return buildNode(n, w.lines, texts, w.epilogue);
   });
   return { story: { meta: metaFrom(spec, skeleton), variables: spec.variables, characters: cast, nodes }, errors };
 }
@@ -155,7 +157,10 @@ export function defaultOwners(story: Story): Record<string, string> {
 /** Writer content (lines + choice texts) recovered from a finished story. */
 export function writtenFromStory(story: Story): Record<string, WriterNode> {
   return Object.fromEntries(
-    story.nodes.map((n) => [n.id, { id: n.id, lines: n.lines, choiceTexts: n.type === "scene" ? n.choices.map((c) => c.text) : [] }]),
+    story.nodes.map((n) => [
+      n.id,
+      { id: n.id, lines: n.lines, choiceTexts: n.type === "scene" ? n.choices.map((c) => c.text) : [], epilogue: n.type === "ending" ? (n.epilogue ?? null) : null },
+    ]),
   );
 }
 

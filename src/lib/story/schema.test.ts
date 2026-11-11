@@ -39,7 +39,7 @@ describe("agent output schemas", () => {
 
   it("writer output has no structural fields", () => {
     const parsed = WriterOutput.parse({
-      nodes: [{ id: "n1", lines: [{ speaker: null, text: "hi" }], choiceTexts: ["a"], next: "x" }],
+      nodes: [{ id: "n1", lines: [{ speaker: null, text: "hi" }], choiceTexts: ["a"], epilogue: null, next: "x" }],
     });
     expect(parsed.nodes[0]).not.toHaveProperty("next");
   });

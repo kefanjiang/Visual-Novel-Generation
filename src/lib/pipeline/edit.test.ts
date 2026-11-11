@@ -39,6 +39,22 @@ async function generated(owner = "o_me") {
   return project;
 }
 
+/** Writers that actually change the text they are asked to rewrite (the default fixture returns it unchanged). */
+function useEditingWriters() {
+  models = createFakeModels({
+    writer: (user) => {
+      const out = FIXTURES.writer(assignedIds(user));
+      if (!user.includes("用户的修改要求") && !user.includes("需要修正的问题")) return out;
+      for (const n of out.nodes) {
+        n.lines = n.lines.map((l) => ({ ...l, text: l.text + "（改）" }));
+        if (n.epilogue !== undefined && n.id.startsWith("e_")) n.epilogue = "真凶另有其人，你被推出来顶了罪。";
+      }
+      return out;
+    },
+  });
+  deps = { models, compile: checkProjectCompiles };
+}
+
 const currentStory = async (projectId: string) => {
   const p = await getProject(db, projectId);
   const v = await getVersion(db, p!.currentVersionId!);
@@ -48,6 +64,7 @@ const currentStory = async (projectId: string) => {
 describe("chat edits", () => {
   it("text edit: router targets the character's nodes, only those writers rewrite, v2 is saved", async () => {
     const p = await generated();
+    useEditingWriters();
     const { run } = await startEdit(db, { projectId: p.id, owner: "o_me", text: "让林晚说话更冷淡" });
     const { last, stages } = await drive(run.id);
     expect(last.status).toBe("done");
@@ -62,17 +79,21 @@ describe("chat edits", () => {
     expect(v).toMatchObject({ n: 2, source: "chat_edit", summary: "林晚更冷淡" });
     const msgs = await listMessages(db, p.id);
     expect(msgs.some((m) => m.agent === "producer" && m.content.includes("交给编剧"))).toBe(true);
-    expect(msgs.at(-1)?.content).toContain("v2 完成");
+    expect(msgs.at(-1)?.content).toContain("v2：林晚更冷淡");
+    expect(msgs.at(-1)?.content).toMatch(/改动：.*n1/);
   });
 
-  it("@Kai goes straight to the engineer without the router", async () => {
+  it("@Kai with a style request: Kai handles it himself", async () => {
     const p = await generated();
+    models.queue("router", { kind: "style", reply: "换成暖色调", nodeIds: [], characterIds: [], instructions: "换成暖色调", summary: "暖色调" });
     models.queue("engineer", { ...FIXTURES.engineer(), themeCss: ":root { --sg-accent: #ff9966; }" });
     const { run, mention } = await startEdit(db, { projectId: p.id, owner: "o_me", text: "@Kai 换成暖色调" });
     expect(mention).toBe("engineer");
     const { stages } = await drive(run.id);
     expect(stages).toEqual(["edit_style", "assemble", "done"]);
-    expect(models.calls.some((c) => c.agent === "router")).toBe(false);
+    const msgs = await listMessages(db, p.id);
+    expect(msgs.some((m) => m.agent === "engineer" && m.content.startsWith("收到，我来改"))).toBe(true);
+    expect(msgs.at(-1)?.content).toContain("界面配色");
     expect(models.calls.find((c) => c.agent === "engineer")!.user).toContain("换成暖色调");
     const { v } = await currentStory(p.id);
     expect(v.files[THEME_PATH]).toContain("#ff9966");
@@ -88,8 +109,8 @@ describe("chat edits", () => {
     models.queue("architect", sk);
     models.queue("writer", {
       nodes: [
-        { id: "n5", lines: SAMPLE_STORY.nodes.find((n) => n.id === "n5")!.lines, choiceTexts: ["把纸条交给林晚。", "自己收起纸条离开。", "追出去。"] },
-        { id: "e_shadow", lines: [{ speaker: null, text: "你追进雨里，礼帽在街角一闪而过。" }], choiceTexts: [] },
+        { id: "n5", lines: SAMPLE_STORY.nodes.find((n) => n.id === "n5")!.lines, choiceTexts: ["把纸条交给林晚。", "自己收起纸条离开。", "追出去。"], epilogue: null },
+        { id: "e_shadow", lines: [{ speaker: null, text: "你追进雨里，礼帽在街角一闪而过。" }], choiceTexts: [], epilogue: "你没追上他，但记住了那顶礼帽。" },
       ],
     });
 
@@ -124,6 +145,7 @@ describe("chat edits", () => {
 
   it("@Iris reviews; issues lead to a revised version, no issues leave it unchanged", async () => {
     const p = await generated();
+    useEditingWriters();
     const r1 = await startEdit(db, { projectId: p.id, owner: "o_me", text: "@Iris 帮我检查一下" });
     expect((await drive(r1.run.id)).stages).toEqual(["edit_review", "done"]);
     expect(await listVersions(db, p.id)).toHaveLength(1);
@@ -148,6 +170,7 @@ describe("chat edits", () => {
 describe("versions, manual edits and remix", () => {
   it("restore saves an old version as the newest one", async () => {
     const p = await generated();
+    useEditingWriters();
     const r = await startEdit(db, { projectId: p.id, owner: "o_me", text: "让林晚说话更冷淡" });
     await drive(r.run.id);
     const versions = await listVersions(db, p.id);
@@ -193,5 +216,53 @@ describe("stableStringify", () => {
     const { stableStringify } = await import("./runner");
     expect(stableStringify({ b: 1, a: { d: [2, 1], c: null } })).toBe(stableStringify({ a: { c: null, d: [2, 1] }, b: 1 }));
     expect(stableStringify([1, 2])).not.toBe(stableStringify([2, 1]));
+  });
+
+});
+
+describe("routing and change reports", () => {
+  it("@Kai asked to change story text: Mira explains and hands it to the writers", async () => {
+    const p = await generated();
+    useEditingWriters();
+    models.queue("router", {
+      kind: "text",
+      reply: "这是改结局文字，交给编剧在结局说明里写明白。",
+      nodeIds: ["e_bad"],
+      characterIds: [],
+      instructions: "在结局说明里直接写明：真凶另有其人，你被当成替罪羊",
+      summary: "结局点明真凶",
+    });
+    const { run } = await startEdit(db, { projectId: p.id, owner: "o_me", text: "@Kai 结局下面写清楚真凶另有其人" });
+    const { stages } = await drive(run.id);
+    expect(stages).toEqual(["edit_text", "validate", "assemble", "done"]);
+    expect(models.calls.some((c) => c.agent === "engineer")).toBe(false);
+    const w = models.calls.find((c) => c.agent === "writer")!;
+    expect(w.user).toContain("用户的修改要求（原话：「@Kai 结局下面写清楚真凶另有其人」）");
+    const msgs = await listMessages(db, p.id);
+    expect(msgs.some((m) => m.agent === "producer" && m.content.includes("Kai 做不了"))).toBe(true);
+    const { story } = await currentStory(p.id);
+    const ending = story.nodes.find((n) => n.id === "e_bad");
+    expect(ending?.type === "ending" && ending.epilogue).toBe("真凶另有其人，你被推出来顶了罪。");
+    expect(msgs.at(-1)?.content).toContain("结局说明");
+  });
+
+  it("an edit that changes nothing says so and keeps the version", async () => {
+    const p = await generated();
+    // default writers return the text unchanged
+    const { run } = await startEdit(db, { projectId: p.id, owner: "o_me", text: "让林晚说话更冷淡" });
+    const { stages } = await drive(run.id);
+    expect(stages.at(-1)).toBe("done");
+    expect(await listVersions(db, p.id)).toHaveLength(1);
+    expect((await listMessages(db, p.id)).at(-1)?.content).toContain("没有产生任何改动");
+  });
+
+  it("a change only to the README is reported as invisible in the game", async () => {
+    const p = await generated();
+    models.queue("router", { kind: "style", reply: "改说明", nodeIds: [], characterIds: [], instructions: "改 README", summary: "改说明" });
+    models.queue("engineer", { ...FIXTURES.engineer(), readme: "# 新说明" });
+    const { run } = await startEdit(db, { projectId: p.id, owner: "o_me", text: "改一下说明文字" });
+    await drive(run.id);
+    expect(await listVersions(db, p.id)).toHaveLength(2);
+    expect((await listMessages(db, p.id)).at(-1)?.content).toContain("游戏画面里看不到变化");
   });
 });

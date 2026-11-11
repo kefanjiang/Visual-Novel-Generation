@@ -42,7 +42,12 @@ export const FIXTURES = {
   writer: (ids: string[]): WriterOutput => ({
     nodes: structuredClone(SAMPLE_STORY).nodes
       .filter((n) => ids.includes(n.id))
-      .map((n) => ({ id: n.id, lines: n.lines, choiceTexts: n.type === "scene" ? n.choices.map((c) => c.text) : [] })),
+      .map((n) => ({
+        id: n.id,
+        lines: n.lines,
+        choiceTexts: n.type === "scene" ? n.choices.map((c) => c.text) : [],
+        epilogue: n.type === "ending" ? (n.epilogue ?? null) : null,
+      })),
   }),
   reviewer: () => ({ issues: [] as { nodeId: string; problem: string; suggestion: string }[] }),
   plotReview: () => ({ verdict: "pass", highlights: "开场就有悬念，三个结局各有代价。", issues: [] }),

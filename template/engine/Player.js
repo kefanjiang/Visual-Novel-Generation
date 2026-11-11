@@ -198,6 +198,7 @@ export default function Player({ story, Hud }) {
       {!showPreface && allShown && node.type === "ending" ? (
         <section className="sg-ending">
           <h2>结局：{node.title}</h2>
+          {node.epilogue ? <p className="sg-epilogue">{node.epilogue}</p> : null}
           <p className="sg-muted">
             已解锁结局 {endings.length} / {endingNodes.length}
           </p>

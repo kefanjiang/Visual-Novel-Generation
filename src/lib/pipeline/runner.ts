@@ -4,6 +4,7 @@ import {
   addMessage,
   addVersion,
   getRun,
+  getVersion,
   releaseLease,
   updateProject,
   updateRun,
@@ -40,6 +41,9 @@ import { activeWriters, graphOf, mergeStory, ownersOf, skeletonToStory } from "@
 import { describeSimulation, simulate, type SimulationReport } from "@/lib/story/simulate";
 import { groupByOwner, validateStory, type ValidationError } from "@/lib/story/validate";
 import { assembleFiles, HUD_PATH, withDefaultHud } from "@/lib/template/assemble";
+import { changeSummary, describeChanges, stableStringify } from "./diff";
+
+export { stableStringify };
 
 export const LEASE_MS = 240_000;
 export const MAX_ARCH_ROUNDS = 3;
@@ -111,6 +115,8 @@ export interface RunState {
   plan?: EditPlan;
   changedIds?: string[];
   versionSource?: "generate" | "chat_edit";
+  /** The version an edit started from, to report what actually changed. */
+  baseVersionId?: string;
   editSummary?: string;
 }
 
@@ -141,6 +147,25 @@ interface Ctx {
 }
 
 type Handler = (ctx: Ctx) => Promise<Stage>;
+
+/** What each @-mentionable member can change. */
+const CAN: Partial<Record<AgentKey, EditPlan["kind"][]>> = {
+  engineer: ["style"],
+  architect: ["structure"],
+  writer_a: ["text"],
+  writer_b: ["text"],
+  writer_c: ["text"],
+  writer_d: ["text"],
+};
+const DUTY: Partial<Record<AgentKey, string>> = {
+  engineer: "界面（配色、字体、状态栏），不能改剧情文字",
+  architect: "剧情结构（分支、结局、走向）",
+  writer_a: "台词和结局文字",
+  writer_b: "台词和结局文字",
+  writer_c: "台词和结局文字",
+  writer_d: "台词和结局文字",
+};
+export const canHandle = (agent: AgentKey, kind: EditPlan["kind"]) => CAN[agent]?.includes(kind) ?? false;
 
 const formatErrors = (errs: ValidationError[]) => errs.map((e) => (e.nodeId ? `[${e.nodeId}] ${e.message}` : e.message));
 
@@ -409,42 +434,38 @@ const HANDLERS: Record<Exclude<Stage, "done">, Handler> = {
   async route({ state, deps, emit, say }) {
     const story = state.story!;
     const text = state.prompt;
-    const direct = (kind: EditPlan["kind"], who: AgentKey): EditPlan => ({
-      kind,
-      reply: `${TEAM[who].name} 直接处理`,
-      nodeIds: [],
-      characterIds: [],
-      instructions: text,
-      summary: text.slice(0, 24),
-    });
-    let plan: EditPlan;
-    if (state.mention === "engineer") plan = direct("style", "engineer");
-    else if (state.mention === "architect") plan = direct("structure", "architect");
-    else if (state.mention?.startsWith("writer_")) plan = direct("text", state.mention);
-    else if (state.mention === "reviewer") {
+    if (state.mention === "reviewer") {
       state.editSummary = "按审校意见润色";
       await say("reviewer", "收到，我通读一遍，把问题交给对应编剧。");
       return "edit_review";
-    } else {
-      await emit("producer", "started", { routing: true });
-      const r = await runRouter(deps.models, story, text);
-      state.tokens += r.tokens;
-      plan = r.output;
-      await emit("producer", "done", { plan });
     }
+    // Mira always reads the request, even when someone was @-mentioned: the mention says who the
+    // user would like, the request decides who can actually do it.
+    await emit("producer", "started", { routing: true });
+    const r = await runRouter(deps.models, story, text);
+    state.tokens += r.tokens;
+    const plan: EditPlan = r.output;
+    await emit("producer", "done", { plan });
     state.plan = plan;
     state.editSummary = plan.summary;
     const target: Record<EditPlan["kind"], string> = {
-      text: "交给编剧修改台词",
+      text: "交给编剧修改",
       structure: "交给 Ada 调整剧情结构",
       style: "交给 Kai 修改界面",
       question: "",
       new_game: "",
     };
-    if (state.mention) {
-      await say(state.mention, `收到：「${text}」，我直接来改。`);
+    const actionable = plan.kind !== "question" && plan.kind !== "new_game";
+    if (state.mention && actionable && canHandle(state.mention, plan.kind)) {
+      await say(state.mention, `收到，我来改：${plan.reply}`);
+    } else if (state.mention && actionable) {
+      const who = TEAM[state.mention];
+      await say(
+        "producer",
+        `${who.name} 负责${DUTY[state.mention] ?? who.title}，这件事 ${who.name} 做不了。${plan.reply}（${target[plan.kind]}）`,
+      );
     } else {
-      await say("producer", plan.kind === "question" || plan.kind === "new_game" ? plan.reply : `${plan.reply}（${target[plan.kind]}）`);
+      await say("producer", actionable ? `${plan.reply}（${target[plan.kind]}）` : plan.reply);
     }
     if (plan.kind === "question" || plan.kind === "new_game") return "done";
     return plan.kind === "text" ? "edit_text" : plan.kind === "structure" ? "edit_skeleton" : "edit_style";
@@ -461,7 +482,7 @@ const HANDLERS: Record<Exclude<Stage, "done">, Handler> = {
     const byWriter: Record<string, { ids: string[]; feedback: string[] }> = {};
     for (const id of ids) {
       const w = owners[id];
-      byWriter[w] ??= { ids: [], feedback: [`修改要求：${plan.instructions}`] };
+      byWriter[w] ??= { ids: [], feedback: [`用户的修改要求（原话：「${state.prompt}」）：${plan.instructions}`] };
       byWriter[w].ids.push(id);
     }
     state.changedIds = ids;
@@ -493,17 +514,6 @@ const HANDLERS: Record<Exclude<Stage, "done">, Handler> = {
     const r = await runArchitectEdit(deps.models, state.spec!, state.cast!, before, plan.instructions, state.archFeedback ?? []);
     state.tokens += r.tokens;
     const check = validateStory(skeletonToStory(state.spec!, state.cast!, r.output), { owners: ownersOf(r.output) });
-    if (!check.ok && state.approvedSkeleton) {
-      // A plot revision broke the structure: keep the version that already passed.
-      state.skeleton = state.approvedSkeleton;
-      state.approvedSkeleton = undefined;
-      state.archFeedback = undefined;
-      state.skeletonDraft = undefined;
-      await emit("architect", "done", { nodes: state.skeleton.nodes.length, reverted: true });
-      await emit("system", "graph", { ...graphOf(state.skeleton), status: "outline" });
-      await say("system", `Ada 的改版没有通过结构校验（${formatErrors(check.errors).slice(0, 2).join("；")}），沿用上一版骨架开写。`);
-      return "write";
-    }
     if (!check.ok) {
       state.archRound += 1;
       state.archFeedback = formatErrors(check.errors);
@@ -581,6 +591,20 @@ const HANDLERS: Record<Exclude<Stage, "done">, Handler> = {
       }
     }
     const isEdit = state.mode === "edit";
+    let changes = "";
+    if (isEdit && state.baseVersionId) {
+      const base = await getVersion(db, state.baseVersionId);
+      if (base) {
+        const report = describeChanges({ story: base.story as Story, files: base.files }, { story, files });
+        if (report.none) {
+          await say("producer", `这次没有产生任何改动，版本保持不变。可能是我没理解对，换个说法再试试，或者说清楚想改哪一处。`);
+          return "done";
+        }
+        changes = report.visible
+          ? `改动：${changeSummary(report)}。`
+          : `注意：这次只改了 ${changeSummary(report)}，游戏画面里看不到变化。`;
+      }
+    }
     const version = await addVersion(db, {
       projectId: run.projectId,
       files,
@@ -594,7 +618,11 @@ const HANDLERS: Record<Exclude<Stage, "done">, Handler> = {
     await emit("system", "graph_status", { ids: story.nodes.map((n) => n.id), status: "done" });
     await emit("system", "version", { versionId: version.id, n: version.n, playtest: state.playtest });
     if (isEdit) {
-      await say("producer", `v${version.n} 完成：${state.editSummary ?? "已按你的要求修改"}。${note}${state.playtest ? describeSimulation(state.playtest) + "。" : ""}`, version.id);
+      await say(
+        "producer",
+        `v${version.n}：${state.editSummary ?? "按你的要求修改"}。${changes}${note}${state.playtest ? describeSimulation(state.playtest) + "。" : ""}`,
+        version.id,
+      );
       return "done";
     }
     await say(
@@ -626,18 +654,6 @@ async function rewrite(
       await emit(key, "done", { nodes: accepted.map((n) => n.id), fixed: true });
     }),
   );
-}
-
-/** Key-order independent JSON (jsonb reorders object keys on the way back from Postgres). */
-export function stableStringify(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
-  if (v && typeof v === "object") {
-    return `{${Object.keys(v as object)
-      .sort()
-      .map((k) => `${JSON.stringify(k)}:${stableStringify((v as Record<string, unknown>)[k])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(v ?? null);
 }
 
 /** What makes a skeleton node "the same" for edit diffing: its story beat and its outgoing structure. */

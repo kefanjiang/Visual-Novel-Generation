@@ -47,3 +47,4 @@ body { background: var(--sg-backdrop, var(--sg-bg)); color: var(--sg-text); font
 .sg-cast li b { white-space: nowrap; flex-shrink: 0; }
 .sg-cast-avatar { font-size: 20px; flex-shrink: 0; }
 .sg-start { text-align: center; margin-top: 6px; }
+.sg-epilogue { margin: 0 auto 12px; max-width: 520px; line-height: 1.9; font-size: 15px; }
