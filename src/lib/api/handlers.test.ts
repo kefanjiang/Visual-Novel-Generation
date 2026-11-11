@@ -11,7 +11,13 @@ import {
   getProjectHandler,
   getVersionHandler,
   listProjectsHandler,
+  playHandler,
+  postMessageHandler,
+  remixHandler,
+  restoreHandler,
   retryHandler,
+  saveVersionHandler,
+  setExampleHandler,
 } from "./handlers";
 
 const limits: Limits = { perIp: { generate: 2, edit: 5 }, global: { generate: 3, edit: 10 } };
@@ -88,5 +94,61 @@ describe("API handlers", () => {
     expect((await retryHandler(db, runId, "o_other")).status).toBe(403);
     expect((await retryHandler(db, runId, "o_me")).status).toBe(200);
     expect((await getProjectHandler(db, "p_missing", "o")).status).toBe(404);
+  });
+});
+
+describe("step 6 handlers", () => {
+  async function generatedProject(owner = "o_me") {
+    const deps = { models: createFakeModels(), compile: checkProjectCompiles };
+    const { projectId, runId } = (await createProjectHandler(db, { owner, ipHash: "h0", prompt: "雨夜书店" }, { ...limits, perIp: { generate: 99, edit: 99 }, global: { generate: 99, edit: 99 } })).body as { projectId: string; runId: string };
+    for (let i = 0; i < 20; i++) {
+      const r = await advanceHandler(db, runId, owner, deps);
+      if ((r.body as { status: string }).status !== "running") break;
+    }
+    return { projectId, deps };
+  }
+
+  it("posting a message starts an edit run; guards map to HTTP codes", async () => {
+    const { projectId } = await generatedProject();
+    expect((await postMessageHandler(db, { projectId, owner: "o_me", ipHash: "h", text: "" }, limits)).status).toBe(400);
+    expect((await postMessageHandler(db, { projectId, owner: "o_x", ipHash: "h", text: "hi" }, limits)).status).toBe(403);
+    expect((await postMessageHandler(db, { projectId: "p_nope", owner: "o_me", ipHash: "h", text: "hi" }, limits)).status).toBe(404);
+    const r = await postMessageHandler(db, { projectId, owner: "o_me", ipHash: "h", text: "@Kai 换个颜色" }, limits);
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ mention: "engineer" });
+    // a second message while the run is active is rejected
+    expect((await postMessageHandler(db, { projectId, owner: "o_me", ipHash: "h", text: "再改" }, limits)).status).toBe(409);
+  });
+
+  it("edit messages are rate limited separately", async () => {
+    const { projectId } = await generatedProject();
+    const tight = { ...limits, perIp: { generate: 9, edit: 0 } };
+    const r = await postMessageHandler(db, { projectId, owner: "o_me", ipHash: "h", text: "hi" }, tight);
+    expect(r.status).toBe(429);
+  });
+
+  it("restore, manual save, remix, play and examples", async () => {
+    const { projectId } = await generatedProject();
+    const proj = (await getProjectHandler(db, projectId, "o_me")).body as { currentVersion: { id: string; files: Record<string, string> } };
+
+    expect((await restoreHandler(db, { projectId, owner: "o_me", versionId: 5 })).status).toBe(400);
+    expect((await restoreHandler(db, { projectId, owner: "o_me", versionId: proj.currentVersion.id })).body).toMatchObject({ n: 2 });
+
+    expect((await saveVersionHandler(db, { projectId, owner: "o_me", files: { "/a.js": 1 } })).status).toBe(400);
+    expect((await saveVersionHandler(db, { projectId, owner: "o_me", files: { "/story.json": "{bad" } })).status).toBe(400);
+    expect((await saveVersionHandler(db, { projectId, owner: "o_me", files: { "/README.md": "# hi" } }, checkProjectCompiles)).body).toMatchObject({ n: 3 });
+
+    const remix = await remixHandler(db, { projectId, owner: "o_guest" });
+    expect(remix.status).toBe(201);
+    expect((await remixHandler(db, { projectId: "p_nope", owner: "o_guest" })).status).toBe(404);
+
+    const play = await playHandler(db, projectId);
+    expect(play.body).toMatchObject({ title: "雨夜书店", n: 3 });
+    expect((await playHandler(db, "p_nope")).status).toBe(404);
+
+    expect((await setExampleHandler(db, { projectId, token: "x", isExample: true }, "secret")).status).toBe(401);
+    expect((await setExampleHandler(db, { projectId, token: "secret", isExample: true }, undefined)).status).toBe(401);
+    expect((await setExampleHandler(db, { projectId, token: "secret", isExample: true }, "secret")).status).toBe(200);
+    expect(((await listProjectsHandler(db, "o_anyone")).body as { examples: { id: string }[] }).examples.map((e) => e.id)).toEqual([projectId]);
   });
 });

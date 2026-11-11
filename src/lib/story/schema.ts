@@ -182,3 +182,16 @@ export const EngineerOutput = z.object({
   readme: z.string().min(1).max(3000),
 });
 export type EngineerOutput = z.infer<typeof EngineerOutput>;
+
+/** 制作人 routing a follow-up message. */
+export const EditPlan = z.object({
+  kind: z
+    .enum(["text", "structure", "style", "question", "new_game"])
+    .describe("text=改台词口吻；structure=加/删分支、结局、改走向；style=配色字体界面组件；question=只是提问；new_game=想做全新的游戏"),
+  reply: z.string().min(1).max(300).describe("对用户说的话：你理解的需求和交给谁"),
+  nodeIds: z.array(Id).max(40).describe("text 修改涉及的节点；不确定就留空"),
+  characterIds: z.array(Id).max(6).describe("text 修改针对的角色；没有就留空"),
+  instructions: z.string().min(1).max(400).describe("给执行者的具体修改要求"),
+  summary: z.string().min(1).max(40).describe("这次修改的简短标题，用作版本说明"),
+});
+export type EditPlan = z.infer<typeof EditPlan>;

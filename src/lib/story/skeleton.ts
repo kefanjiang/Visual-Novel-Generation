@@ -117,7 +117,7 @@ export function storyToSkeleton(story: Story, owners: Record<string, string> = {
   const writers = [...new Set(story.nodes.map((n) => owners[n.id] ?? "a"))].sort() as Skeleton["writers"][number]["id"][];
   return {
     start: story.meta.start,
-    writers: writers.map((id) => ({ id, focus: "" })),
+    writers: writers.map((id) => ({ id, focus: "沿用原有剧情线" })),
     nodes: story.nodes.map((n) => ({
       id: n.id,
       type: n.type,
@@ -132,5 +132,35 @@ export function storyToSkeleton(story: Story, owners: Record<string, string> = {
           ? n.choices.map((c) => ({ intent: c.text.slice(0, 40), next: c.next, condition: c.condition, effects: c.effects }))
           : [],
     })),
+  };
+}
+
+/** Split nodes (in story order) into up to 3 contiguous groups so edits can be written in parallel. */
+export function defaultOwners(story: Story): Record<string, string> {
+  const ids = story.nodes.map((n) => n.id);
+  const groups = Math.min(3, Math.max(1, Math.ceil(ids.length / 4)));
+  const size = Math.ceil(ids.length / groups);
+  return Object.fromEntries(ids.map((id, i) => [id, "abc"[Math.floor(i / size)]]));
+}
+
+/** Writer content (lines + choice texts) recovered from a finished story. */
+export function writtenFromStory(story: Story): Record<string, WriterNode> {
+  return Object.fromEntries(
+    story.nodes.map((n) => [n.id, { id: n.id, lines: n.lines, choiceTexts: n.type === "scene" ? n.choices.map((c) => c.text) : [] }]),
+  );
+}
+
+/** A spec reconstructed from a finished story, used by edit runs. */
+export function specFromStory(story: Story): Spec {
+  return {
+    title: story.meta.title,
+    genre: story.meta.genre,
+    tone: story.meta.tone,
+    synopsis: story.meta.synopsis,
+    characterCount: story.characters.length,
+    endingCount: Math.min(4, Math.max(2, story.nodes.filter((n) => n.type === "ending").length)),
+    nodeTarget: Math.min(35, Math.max(12, story.nodes.length)),
+    variables: story.variables,
+    note: "",
   };
 }

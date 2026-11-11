@@ -2,6 +2,7 @@ import { generateText, NoObjectGeneratedError, Output, type LanguageModel } from
 import type { z } from "zod";
 import {
   CastOutput,
+  EditPlan,
   EngineerOutput,
   ReviewOutput,
   Skeleton,
@@ -99,4 +100,40 @@ export function runEngineer(m: Models, spec: Spec, cast: Character[], feedback: 
   const parts = [`规格：\n${json(spec)}`, `角色：\n${json(cast)}`];
   if (feedback.length) parts.push(`上一版代码的问题：\n${feedback.map((f) => `- ${f}`).join("\n")}`);
   return callAgent(m.strong, EngineerOutput, P.ENGINEER, parts.join("\n\n"));
+}
+
+export function runRouter(m: Models, story: Story, message: string) {
+  const outline = story.nodes.map((n) => ({
+    id: n.id,
+    type: n.type,
+    speakers: [...new Set(n.lines.map((l) => l.speaker).filter(Boolean))],
+    first: n.lines[0]?.text.slice(0, 40),
+  }));
+  return callAgent(
+    m.fast,
+    EditPlan,
+    P.ROUTER,
+    [`游戏：《${story.meta.title}》（${story.meta.genre}）`, `角色：${json(story.characters.map((c) => ({ id: c.id, name: c.name })))}`, `节点概览：\n${json(outline)}`, `用户消息：${message}`].join("\n\n"),
+  );
+}
+
+export function runArchitectEdit(m: Models, spec: Spec, cast: Character[], current: Skeleton, instructions: string, feedback: string[] = []) {
+  const parts = [`规格：\n${json(spec)}`, `角色：\n${json(cast)}`, `现有骨架：\n${json(current)}`, `修改要求：${instructions}`];
+  if (feedback.length) parts.push(`上一版修改后的问题：\n${feedback.map((f) => `- ${f}`).join("\n")}`);
+  return callAgent(m.strong, Skeleton, P.ARCHITECT_EDIT, parts.join("\n\n"));
+}
+
+export function runEngineerEdit(
+  m: Models,
+  spec: Spec,
+  cast: Character[],
+  current: { themeCss: string; hudJs: string; readme: string },
+  instructions: string,
+) {
+  return callAgent(
+    m.strong,
+    EngineerOutput,
+    P.ENGINEER,
+    [`规格：\n${json(spec)}`, `角色：\n${json(cast)}`, `当前 theme.css：\n${current.themeCss}`, `当前 Hud.js：\n${current.hudJs}`, `当前 README：\n${current.readme}`, `修改要求：${instructions}\n只改要求涉及的部分，其余保持不变。`].join("\n\n"),
+  );
 }

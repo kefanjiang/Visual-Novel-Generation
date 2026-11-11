@@ -49,3 +49,13 @@ describe("skeleton helpers", () => {
     expect(g.edges.find((e) => e.source === "n6" && e.target === "e_secret")?.label).toBe("trust_lin >= 3");
   });
 });
+
+describe("storyToSkeleton", () => {
+  it("produces a schema-valid skeleton (usable as an architect edit base)", async () => {
+    const { Skeleton } = await import("./schema");
+    const { storyToSkeleton, defaultOwners } = await import("./skeleton");
+    const sk = storyToSkeleton(SAMPLE_STORY, defaultOwners(SAMPLE_STORY));
+    expect(Skeleton.safeParse(sk).success).toBe(true);
+    expect(new Set(Object.values(defaultOwners(SAMPLE_STORY)))).toEqual(new Set(["a", "b", "c"]));
+  });
+});

@@ -6,7 +6,7 @@ import { storyToSkeleton } from "@/lib/story/skeleton";
 
 (globalThis as { AI_SDK_LOG_WARNINGS?: boolean }).AI_SDK_LOG_WARNINGS = false;
 
-export type AgentName = "producer" | "cast" | "architect" | "writer" | "reviewer" | "engineer";
+export type AgentName = "producer" | "cast" | "architect" | "writer" | "reviewer" | "engineer" | "router";
 
 export const SAMPLE_OWNERS: Record<string, string> = {
   n1: "a", n2: "a", n3: "a",
@@ -73,6 +73,14 @@ export function createFakeModels(overrides: Partial<Record<AgentName, Responder>
     writer: (user) => FIXTURES.writer(assignedIds(user)),
     reviewer: () => FIXTURES.reviewer(),
     engineer: () => FIXTURES.engineer(),
+    router: () => ({
+      kind: "text",
+      reply: "明白，让林晚说话更冷淡。",
+      nodeIds: [],
+      characterIds: ["lin"],
+      instructions: "林晚的台词更短、更冷淡",
+      summary: "林晚更冷淡",
+    }),
   };
 
   const make = () =>
