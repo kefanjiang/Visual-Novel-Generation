@@ -73,3 +73,35 @@ export function step(story, state, choiceIndex) {
     ended: next.type === "ending",
   };
 }
+
+// ---- Reading position + rewind ("上一句") ----
+// A cursor is where the player is reading: the game state, the line within the
+// current node, and a trail of earlier states (one per choice taken).
+
+export const TRAIL_LIMIT = 100;
+
+export function initCursor(story) {
+  return { state: initState(story), line: 0, trail: [] };
+}
+
+/** Take a choice and remember where we came from, so the player can go back. */
+export function choose(story, cursor, choiceIndex) {
+  const trail = [...cursor.trail, cursor.state].slice(-TRAIL_LIMIT);
+  return { state: step(story, cursor.state, choiceIndex), line: 0, trail };
+}
+
+export function canRewind(cursor) {
+  return cursor.line > 0 || cursor.trail.length > 0;
+}
+
+/**
+ * Go back one line. At the first line of a node, return to the previous node's
+ * last line with its earlier variables restored, so its choices show again.
+ */
+export function rewind(story, cursor) {
+  if (cursor.line > 0) return { ...cursor, line: cursor.line - 1 };
+  if (!cursor.trail.length) return cursor;
+  const prev = cursor.trail[cursor.trail.length - 1];
+  const node = indexNodes(story)[prev.nodeId];
+  return { state: prev, line: Math.max(0, (node ? node.lines.length : 1) - 1), trail: cursor.trail.slice(0, -1) };
+}

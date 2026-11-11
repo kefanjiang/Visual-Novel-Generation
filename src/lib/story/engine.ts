@@ -2,10 +2,15 @@
 export {
   applyEffects,
   availableChoices,
+  canRewind,
+  choose,
   clampVar,
   evalCondition,
   indexNodes,
+  initCursor,
   initState,
+  rewind,
   step,
+  TRAIL_LIMIT,
 } from "../../../template/engine/core.js";
-export type { GameState } from "../../../template/engine/core.js";
+export type { Cursor, GameState } from "../../../template/engine/core.js";

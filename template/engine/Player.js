@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { availableChoices, indexNodes, initState, step } from "./core";
+import { availableChoices, canRewind, choose, indexNodes, initCursor, rewind } from "./core";
 
 const SAVE_PREFIX = "story-save:";
 const ENDINGS_PREFIX = "story-endings:";
@@ -21,26 +21,34 @@ function save(key, value) {
   }
 }
 
+/** Accepts the current save format ({ state, line, trail }) and the older one (a bare state). */
+function restore(saved, story, nodes) {
+  if (saved && saved.state && nodes[saved.state.nodeId]) {
+    const max = nodes[saved.state.nodeId].lines.length - 1;
+    return { state: saved.state, line: Math.min(saved.line || 0, Math.max(0, max)), trail: (saved.trail || []).filter((s) => nodes[s.nodeId]) };
+  }
+  if (saved && saved.nodeId && nodes[saved.nodeId]) return { state: saved, line: 0, trail: [] };
+  return initCursor(story);
+}
+
 export default function Player({ story, Hud }) {
   const nodes = useMemo(() => indexNodes(story), [story]);
   const chars = useMemo(() => Object.fromEntries(story.characters.map((c) => [c.id, c])), [story]);
   const saveKey = SAVE_PREFIX + story.meta.title;
   const endingsKey = ENDINGS_PREFIX + story.meta.title;
 
-  const [state, setState] = useState(() => {
-    const saved = load(saveKey, null);
-    return saved && nodes[saved.nodeId] ? saved : initState(story);
-  });
-  const [lineIndex, setLineIndex] = useState(0);
+  const [cursor, setCursor] = useState(() => restore(load(saveKey, null), story, nodes));
   const [endings, setEndings] = useState(() => load(endingsKey, []));
 
+  const { state, line: lineIndex } = cursor;
   const node = nodes[state.nodeId];
   const lines = node ? node.lines : [];
   const allShown = lineIndex >= lines.length - 1;
+  const backEnabled = canRewind(cursor);
 
   useEffect(() => {
-    save(saveKey, state);
-  }, [saveKey, state]);
+    save(saveKey, cursor);
+  }, [saveKey, cursor]);
 
   useEffect(() => {
     if (state.ended && allShown && !endings.includes(state.nodeId)) {
@@ -50,16 +58,23 @@ export default function Player({ story, Hud }) {
     }
   }, [state, allShown, endings, endingsKey]);
 
+  const next = () => setCursor((c) => (c.line < lines.length - 1 ? { ...c, line: c.line + 1 } : c));
+  const back = () => setCursor((c) => rewind(story, c));
+
+  // ← goes back a line, → / space goes forward.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "ArrowLeft") back();
+      else if (e.key === "ArrowRight" || e.key === " ") next();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   if (!node) return <div className="sg-error">剧情数据有误：找不到节点 {state.nodeId}</div>;
 
-  const choose = (index) => {
-    setState(step(story, state, index));
-    setLineIndex(0);
-  };
-  const restart = () => {
-    setState(initState(story));
-    setLineIndex(0);
-  };
+  const pick = (index) => setCursor((c) => choose(story, c, index));
+  const restart = () => setCursor(initCursor(story));
 
   const line = lines[Math.min(lineIndex, lines.length - 1)];
   const speaker = line.speaker ? chars[line.speaker] : null;
@@ -74,7 +89,7 @@ export default function Player({ story, Hud }) {
 
       {Hud ? <Hud vars={state.vars} variables={story.variables} characters={story.characters} /> : null}
 
-      <main className="sg-stage" onClick={() => !allShown && setLineIndex(lineIndex + 1)}>
+      <main className="sg-stage" onClick={next}>
         {speaker ? (
           <div className="sg-portrait" style={{ borderColor: speaker.color }}>
             <span className="sg-avatar">{speaker.avatar}</span>
@@ -84,13 +99,25 @@ export default function Player({ story, Hud }) {
         <p className={speaker ? "sg-line" : "sg-line sg-narration"} key={state.nodeId + ":" + lineIndex}>
           {line.text}
         </p>
+        {backEnabled ? (
+          <button
+            className="sg-back"
+            title="回看上一句（←）"
+            onClick={(e) => {
+              e.stopPropagation();
+              back();
+            }}
+          >
+            ◂ 上一句
+          </button>
+        ) : null}
         {!allShown ? <span className="sg-hint">点击继续 ▸</span> : null}
       </main>
 
       {allShown && node.type === "scene" ? (
         <nav className="sg-choices">
           {availableChoices(story, state).map(({ choice, index }) => (
-            <button key={index} className="sg-choice" onClick={() => choose(index)}>
+            <button key={index} className="sg-choice" onClick={() => pick(index)}>
               {choice.text}
             </button>
           ))}

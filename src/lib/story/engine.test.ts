@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEffects, availableChoices, evalCondition, initState, step } from "./engine";
+import { applyEffects, availableChoices, canRewind, choose, evalCondition, initCursor, initState, rewind, step, TRAIL_LIMIT } from "./engine";
 import { SAMPLE_STORY as S } from "./sample";
 
 describe("engine core", () => {
@@ -53,5 +53,47 @@ describe("engine core", () => {
 
   it("rejects out-of-range choices", () => {
     expect(() => step(S, initState(S), 9)).toThrow(/no choice/);
+  });
+});
+
+describe("reading cursor and rewind", () => {
+  it("goes back a line within a node, then not past the very start", () => {
+    let c = initCursor(S);
+    expect(canRewind(c)).toBe(false);
+    c = { ...c, line: 2 };
+    c = rewind(S, c);
+    expect(c.line).toBe(1);
+    c = rewind(S, rewind(S, c));
+    expect(c).toEqual(initCursor(S));
+  });
+
+  it("rewinding at a node's first line returns to the previous node's last line with old vars", () => {
+    const start = initCursor(S);
+    const after = choose(S, { ...start, line: 1 }, 1);
+    expect(after.state.nodeId).not.toBe("n1");
+    expect(after.line).toBe(0);
+    expect(after.trail).toEqual([start.state]);
+    expect(canRewind(after)).toBe(true);
+    const back = rewind(S, after);
+    const n1Lines = S.nodes.find((n) => n.id === "n1")!.lines.length;
+    expect(back.state).toEqual(start.state);
+    expect(back.line).toBe(n1Lines - 1);
+    expect(back.trail).toEqual([]);
+  });
+
+  it("restores variables changed by the undone choice", () => {
+    let c = initCursor(S);
+    c = choose(S, c, 1); // n3
+    c = choose(S, c, 1); // n4, trust -1
+    expect(c.state.vars.trust_lin).toBe(-1);
+    c = rewind(S, c);
+    expect(c.state.nodeId).toBe("n3");
+    expect(c.state.vars.trust_lin).toBe(0);
+  });
+
+  it("caps the trail", () => {
+    let c = initCursor(S);
+    c = { ...c, trail: Array.from({ length: TRAIL_LIMIT }, () => c.state) };
+    expect(choose(S, c, 0).trail).toHaveLength(TRAIL_LIMIT);
   });
 });
