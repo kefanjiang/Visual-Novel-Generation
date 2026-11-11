@@ -20,10 +20,13 @@
     "@ai-sdk/anthropic": "^4.0.102",
     "@ai-sdk/google": "^4.0.117",
     "@ai-sdk/openai": "^4.0.114",
+    "@codesandbox/sandpack-react": "^2.20.0",
     "@neondatabase/serverless": "^1.2.0",
+    "@xyflow/react": "^12.12.1",
     "ai": "^7.0.169",
     "drizzle-orm": "^0.45.4",
     "next": "16.4.6",
+    "qrcode.react": "^4.2.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "^4.6.7"
