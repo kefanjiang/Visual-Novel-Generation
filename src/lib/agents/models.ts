@@ -8,7 +8,8 @@ export interface Models {
 }
 
 const DEFAULTS: Record<string, { strong: string; fast: string }> = {
-  anthropic: { strong: "claude-sonnet-5-5", fast: "claude-haiku-5-5" },
+  // Writers stay on Sonnet too: Haiku dialogue read noticeably flatter in playtests.
+  anthropic: { strong: "claude-sonnet-5-5", fast: "claude-sonnet-5-5" },
   openai: { strong: "gpt-5", fast: "gpt-5-mini" },
   google: { strong: "gemini-2.5-pro", fast: "gemini-2.5-flash" },
 };
