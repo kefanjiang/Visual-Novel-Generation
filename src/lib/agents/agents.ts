@@ -21,12 +21,19 @@ export interface AgentResult<T> {
   tokens: number;
 }
 
+export interface CallOptions {
+  timeoutMs?: number;
+}
+/** Below the 240 s run lease, so one stuck call can't outlive its stage. */
+export const DEFAULT_TIMEOUT_MS = 200_000;
+
 /** One structured call; on a schema miss, retry once telling the model what was wrong. */
 export async function callAgent<S extends z.ZodType>(
   model: LanguageModel,
   schema: S,
   system: string,
   prompt: string,
+  opts: CallOptions = {},
 ): Promise<AgentResult<z.infer<S>>> {
   let tokens = 0;
   let lastError = "";
@@ -38,6 +45,7 @@ export async function callAgent<S extends z.ZodType>(
         prompt: lastError ? `${prompt}\n\n上一次输出不符合格式要求：${lastError}\n请严格按 schema 重新输出。` : prompt,
         output: Output.object({ schema }),
         maxRetries: 1,
+        abortSignal: AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS),
       });
       tokens += r.usage.totalTokens ?? 0;
       return { output: r.output as z.infer<S>, tokens };
@@ -77,6 +85,7 @@ export function runWriter(
   onlyIds?: string[],
   feedback: string[] = [],
   current?: Record<string, unknown>,
+  opts: CallOptions = {},
 ) {
   const mine = nodesForWriter(ctx.skeleton, writerId).filter((n) => !onlyIds || onlyIds.includes(n.id));
   const ids = mine.map((n) => n.id);
@@ -92,7 +101,7 @@ export function runWriter(
   ];
   if (current) parts.push(`这些节点当前的内容：\n${json(current)}`);
   if (feedback.length) parts.push(`需要修正的问题：\n${feedback.map((f) => `- ${f}`).join("\n")}`);
-  return callAgent(m.fast, WriterOutput, P.WRITER, parts.filter(Boolean).join("\n\n"));
+  return callAgent(m.fast, WriterOutput, P.WRITER, parts.filter(Boolean).join("\n\n"), opts);
 }
 
 export function runPlotReviewer(m: Models, spec: Spec, cast: Character[], skeleton: Skeleton) {

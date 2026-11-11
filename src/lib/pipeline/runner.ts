@@ -44,6 +44,24 @@ import { assembleFiles, HUD_PATH, withDefaultHud } from "@/lib/template/assemble
 export const LEASE_MS = 240_000;
 export const MAX_ARCH_ROUNDS = 3;
 export const MAX_FIX_ROUNDS = 2;
+export const MAX_WRITE_ATTEMPTS = 3;
+/** Nodes per writer call: smaller calls finish well inside the function time limit. */
+export const WRITER_CHUNK = 5;
+/** Bound each writer call so a stuck request fails cleanly instead of hanging the stage. */
+export const WRITER_TIMEOUT_MS = 150_000;
+
+/** Split nodes into per-writer chunks of at most WRITER_CHUNK, keeping story order. */
+export function writerChunks(nodes: { id: string; owner: string }[], size = WRITER_CHUNK): { writer: string; ids: string[] }[] {
+  const byOwner = new Map<string, string[]>();
+  for (const n of nodes) byOwner.set(n.owner, [...(byOwner.get(n.owner) ?? []), n.id]);
+  const out: { writer: string; ids: string[] }[] = [];
+  for (const [writer, ids] of [...byOwner.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const parts = Math.ceil(ids.length / size);
+    const per = Math.ceil(ids.length / parts); // even split: 8 -> 4 + 4, not 5 + 3
+    for (let i = 0; i < ids.length; i += per) out.push({ writer, ids: ids.slice(i, i + per) });
+  }
+  return out;
+}
 
 export type Stage =
   | "plan"
@@ -80,6 +98,8 @@ export interface RunState {
   engineer?: EngineerOutput | null;
   review?: ReviewOutput["issues"];
   fixRound: number;
+  /** Write-stage retries after writer calls failed (timeouts, provider errors). */
+  writeAttempts?: number;
   pendingFixes?: Record<string, { ids: string[]; feedback: string[] }>;
   story?: Story;
   playtest?: SimulationReport;
@@ -95,7 +115,7 @@ export interface RunState {
 }
 
 export function initialState(prompt: string): RunState {
-  return { prompt, archRound: 0, written: {}, fixRound: 0, tokens: 0 };
+  return { prompt, archRound: 0, written: {}, fixRound: 0, writeAttempts: 0, tokens: 0 };
 }
 
 export interface Deps {
@@ -243,24 +263,41 @@ const HANDLERS: Record<Exclude<Stage, "done">, Handler> = {
   },
 
   async write(ctx) {
-    const { state, deps, emit, say } = ctx;
+    const { state, deps, emit, say, db, run } = ctx;
     const skeleton = state.skeleton!;
-    const writerIds = activeWriters(skeleton);
     const focusOf = Object.fromEntries(skeleton.writers.map((w) => [w.id, w.focus]));
+    // Resumable: a retry only writes what is still missing.
+    const missing = skeleton.nodes.filter((n) => !state.written[n.id]);
+    const chunks = writerChunks(missing);
+    const byWriter = new Map<string, number>();
+    for (const c of chunks) byWriter.set(c.writer, (byWriter.get(c.writer) ?? 0) + 1);
+    const failedWriters = new Set<string>();
+    const left = new Map(byWriter);
 
-    const writing = writerIds.map(async (id) => {
-      const key = writerKey(id);
-      await emit(key, "started");
-      const r = await runWriter(deps.models, id, { spec: state.spec!, cast: state.cast!, skeleton, focus: focusOf[id] });
-      const allowed = new Set(skeleton.nodes.filter((n) => n.owner === id).map((n) => n.id));
-      const accepted = r.output.nodes.filter((n) => allowed.has(n.id));
-      for (const n of accepted) state.written[n.id] = n;
-      state.tokens += r.tokens;
-      await emit(key, "done", { nodes: accepted.map((n) => n.id) });
-      await emit("system", "graph_status", { ids: accepted.map((n) => n.id), status: "written" });
-      return accepted.length;
+    for (const id of byWriter.keys()) await emit(writerKey(id), "started", { attempt: (state.writeAttempts ?? 0) + 1 });
+    const writing = chunks.map(async ({ writer, ids }) => {
+      const key = writerKey(writer);
+      try {
+        const r = await runWriter(deps.models, writer, { spec: state.spec!, cast: state.cast!, skeleton, focus: focusOf[writer] }, ids, [], undefined, {
+          timeoutMs: WRITER_TIMEOUT_MS,
+        });
+        const allowed = new Set(ids);
+        const accepted = r.output.nodes.filter((n) => allowed.has(n.id));
+        for (const n of accepted) state.written[n.id] = n;
+        state.tokens += r.tokens;
+        // Save progress now, so a timeout elsewhere doesn't throw this work away.
+        await updateRun(db, run.id, { state });
+        await emit("system", "graph_status", { ids: accepted.map((n) => n.id), status: "written" });
+      } catch (err) {
+        failedWriters.add(writer);
+        await emit(key, "failed", { error: String(err).slice(0, 300) });
+      } finally {
+        left.set(writer, left.get(writer)! - 1);
+        if (left.get(writer) === 0 && !failedWriters.has(writer)) await emit(key, "done");
+      }
     });
     const engineering = (async () => {
+      if (state.engineer !== undefined) return; // done in an earlier attempt
       await emit("engineer", "started");
       try {
         const r = await runEngineer(deps.models, state.spec!, state.cast!);
@@ -273,11 +310,24 @@ const HANDLERS: Record<Exclude<Stage, "done">, Handler> = {
       }
     })();
 
-    const counts = await Promise.all(writing);
+    await Promise.all(writing);
     await engineering;
+
+    const stillMissing = skeleton.nodes.filter((n) => !state.written[n.id]);
+    // Calls that failed get retried; nodes a writer simply left out go through validate → fix as before.
+    if (stillMissing.length && failedWriters.size) {
+      state.writeAttempts = (state.writeAttempts ?? 0) + 1;
+      const who = [...failedWriters].map((w) => TEAM[writerKey(w)].name).join("、") || "编剧";
+      if (state.writeAttempts >= MAX_WRITE_ATTEMPTS) {
+        throw new Error(`${who} 连续 ${MAX_WRITE_ATTEMPTS} 次没写完（还差 ${stillMissing.length} 个节点）`);
+      }
+      await say("system", `${who} 这次没写完（还差 ${stillMissing.length} 个节点），已写好的部分保留，只补写缺的。`);
+      return "write";
+    }
+    const writers = activeWriters(skeleton);
     await say(
       "system",
-      `${writerIds.length} 位编剧完成 ${counts.reduce((a, b) => a + b, 0)} 个节点${state.engineer ? "，Kai 完成了主题和界面组件" : "，界面组件生成失败，将使用默认界面"}。进入审校。`,
+      `${writers.length} 位编剧完成 ${skeleton.nodes.length - stillMissing.length} 个节点${state.engineer ? "，Kai 完成了主题和界面组件" : "，界面组件生成失败，将使用默认界面"}。进入审校。`,
     );
     return "review";
   },

@@ -7,7 +7,7 @@ import { checkProjectCompiles } from "@/lib/template/compile";
 import { HUD_PATH, STORY_PATH } from "@/lib/template/assemble";
 import { TEMPLATE_FILES } from "@/lib/template/generated";
 import { Story } from "@/lib/story/schema";
-import { advanceRun, retryRun, type Deps } from "./runner";
+import { advanceRun, retryRun, writerChunks, type Deps } from "./runner";
 import { startGeneration } from "./start";
 
 let db: Db;
@@ -230,5 +230,36 @@ describe("plot review (Iris reads the skeleton before writing)", () => {
     await advanceRun(db, run.id, deps);
     const state = (await getRun(db, run.id))!.state as { cast: { id: string }[] };
     expect(state.cast.map((c) => c.id)).toEqual(["lin", "npc_2"]);
+  });
+});
+
+describe("writing is chunked and resumable", () => {
+  it("splits a writer's nodes into even chunks of at most 5", () => {
+    const nodes = Array.from({ length: 8 }, (_, i) => ({ id: `n${i}`, owner: "a" })).concat([{ id: "x", owner: "b" }]);
+    const chunks = writerChunks(nodes);
+    expect(chunks.map((c) => [c.writer, c.ids.length])).toEqual([["a", 4], ["a", 4], ["b", 1]]);
+    expect(chunks.flatMap((c) => c.ids)).toEqual(nodes.map((n) => n.id).slice(0, 8).concat("x"));
+  });
+
+  it("a failed writer call is retried for its nodes only; finished work is kept", async () => {
+    models.queue("writer", new Error("timeout"));
+    models.queue("writer", new Error("timeout")); // callAgent does not retry non-format errors, but be safe
+    const { project, run } = await startGeneration(db, { owner: "o_a", prompt: "x" });
+    const { last, stages } = await runToEnd(run.id);
+    expect(last.status).toBe("done");
+    expect(stages.slice(0, 5)).toEqual(["cast", "skeleton", "plot_review", "write", "write"]);
+    const writerCalls = models.calls.filter((c) => c.agent === "writer");
+    // 3 chunks in round one (one failed, maybe two), then only the missing ones again.
+    expect(writerCalls.length).toBeLessThanOrEqual(5);
+    const msgs = await listMessages(db, project.id);
+    expect(msgs.some((m) => m.content.includes("已写好的部分保留"))).toBe(true);
+  });
+
+  it("gives up after repeated failures with a clear error", async () => {
+    for (let i = 0; i < 12; i++) models.queue("writer", new Error("provider down"));
+    const { run } = await startGeneration(db, { owner: "o_a", prompt: "x" });
+    const { last } = await runToEnd(run.id);
+    expect(last.status).toBe("failed");
+    expect(last.error).toMatch(/连续 3 次没写完/);
   });
 });
