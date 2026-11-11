@@ -31,6 +31,13 @@ function restore(saved, story, nodes) {
   return initCursor(story);
 }
 
+/** A save only counts as progress once the player has actually moved past the first line. */
+function hasProgress(saved, story) {
+  if (!saved) return false;
+  if (saved.state) return saved.line > 0 || (saved.trail || []).length > 0 || saved.state.nodeId !== story.meta.start;
+  return Boolean(saved.nodeId) && saved.nodeId !== story.meta.start;
+}
+
 /** The opening "play bill": background, who you are, who you will meet. */
 export function Preface({ story, onStart }) {
   const { meta, characters } = story;
@@ -79,7 +86,7 @@ export default function Player({ story, Hud }) {
 
   const [cursor, setCursor] = useState(() => restore(load(saveKey, null), story, nodes));
   // New players see the preface first; returning players go straight back to where they were.
-  const [showPreface, setShowPreface] = useState(() => Boolean(story.meta.preface) && !load(saveKey, null));
+  const [showPreface, setShowPreface] = useState(() => Boolean(story.meta.preface) && !hasProgress(load(saveKey, null), story));
   const [endings, setEndings] = useState(() => load(endingsKey, []));
 
   const { state, line: lineIndex } = cursor;
